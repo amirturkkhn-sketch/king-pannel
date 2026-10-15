@@ -1,16 +1,23 @@
+import { connect } from 'cloudflare:sockets';
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const host = url.host;
+    const upgradeHeader = request.headers.get("Upgrade");
+
+    // اگر درخواست اتصال پروکسی (WebSocket) بود
+    if (upgradeHeader === "websocket") {
+      return await vlessOverWSHandler(request);
+    }
 
     if (!env.DB) {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
-    // آدرس ورکر پروکسی خود را اینجا قرار دهید
-    const proxyDomain = "king-proxy.quzalkexuyzs.workers.dev";
+    // لینک ثابت پنل و پروکسی شما
+    const proxyDomain = "kingamir.quzalkexuyzs.workers.dev";
 
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
@@ -24,11 +31,8 @@ export default {
 
       if (user.protocol === "VLESS") {
         link = `vless://${uUuid}@${proxyDomain}:443?encryption=none&security=tls&sni=${proxyDomain}&fp=randomized&type=ws&host=${proxyDomain}&path=%2F%3Fed%3D2048#${encodedName}`;
-      } else if (user.protocol === "Trojan") {
-        link = `trojan://${uUuid}@${proxyDomain}:443?security=tls&sni=${proxyDomain}&type=ws&host=${proxyDomain}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else {
-        const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
-        link = `ss://${auth}@${proxyDomain}:443#${encodedName}`;
+        link = `trojan://${uUuid}@${proxyDomain}:443?security=tls&sni=${proxyDomain}&type=ws&host=${proxyDomain}&path=%2F%3Fed%3D2048#${encodedName}`;
       }
 
       return new Response(btoa(unescape(encodeURIComponent(link))), {
@@ -85,20 +89,16 @@ export default {
       });
     }
 
-    // API ایجاد کاربر جدید
+    // API ایجاد کاربر جدید با پیش‌وند KINGAMIR_
     if (path === "/api/users" && method === "POST") {
       const body = await request.json();
       let rawName = body.username ? body.username.trim() : "";
       if (!rawName) return jsonResponse({ error: "نام کاربری الزامی است." }, 400);
 
-      const username = rawName.startsWith("KING_") ? rawName : "KING_" + rawName;
+      const username = rawName.toUpperCase().startsWith("KINGAMIR_") ? rawName : "KINGAMIR_" + rawName;
       const protocol = body.protocol || "VLESS";
       const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
       const expire = body.expire ? body.expire + " روز" : "30 روز";
-      const port = "443";
-      const tls = "TLS 1.3";
-      const adblock = body.adblock || "on";
-      const adult_block = body.adult_block || "on";
 
       const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
       if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
@@ -108,29 +108,10 @@ export default {
 
       await env.DB.prepare(
         `INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
-      ).bind(id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block).run();
+         VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', 'on', 'on', 'active')`
+      ).bind(id, username, uuid, protocol, traffic, expire).run();
 
       return jsonResponse({ success: true, message: "کاربر با موفقیت ثبت شد." });
-    }
-
-    // API ویرایش کاربر
-    if (path.startsWith("/api/users/") && method === "PUT") {
-      const id = path.split("/")[3];
-      const body = await request.json();
-      const protocol = body.protocol || "VLESS";
-      const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
-      const expire = body.expire ? body.expire + " روز" : "30 روز";
-      const port = "443";
-      const tls = "TLS 1.3";
-      const adblock = body.adblock || "on";
-      const adult_block = body.adult_block || "on";
-
-      await env.DB.prepare(
-        `UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, tls = ?, adblock = ?, adult_block = ? WHERE id = ?`
-      ).bind(protocol, traffic, expire, port, tls, adblock, adult_block, id).run();
-
-      return jsonResponse({ success: true, message: "کاربر با موفقیت ویرایش شد." });
     }
 
     // API حذف کاربر
@@ -140,12 +121,96 @@ export default {
       return jsonResponse({ success: true });
     }
 
-    // نمایش پنل مدیریت لوکس
-    return new Response(getMasterDashboardHtml(host), {
+    // نمایش پنل مدیریت اختصاصی KingAmir
+    return new Response(getMasterDashboardHtml(proxyDomain), {
       headers: { "Content-Type": "text/html;charset=UTF-8" }
     });
   }
 };
+
+// هسته پروکسی WebSocket
+async function vlessOverWSHandler(request) {
+  const webSocketPair = new WebSocketPair();
+  const [client, webSocket] = Object.values(webSocketPair);
+  webSocket.accept();
+  
+  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
+  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader);
+  let remoteSocketWapper = { value: null };
+
+  readableWebSocketStream.pipeTo(new WritableStream({
+    async write(chunk) {
+      if (remoteSocketWapper.value) {
+        const writer = remoteSocketWapper.value.writable.getWriter();
+        await writer.write(chunk);
+        writer.releaseLock();
+        return;
+      }
+      const { hasError, message, portRemote = 443, addressRemote = '', rawDataIndex, vlessVersion = new Uint8Array([0, 0]) } = processVlessHeader(chunk);
+      if (hasError) throw new Error(message);
+      
+      const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
+      const rawClientData = chunk.slice(rawDataIndex);
+      handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
+    },
+  })).catch(() => {});
+
+  return new Response(null, { status: 101, webSocket: client });
+}
+
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader) {
+  const tcpSocket = connect({ hostname: addressRemote, port: portRemote });
+  remoteSocket.value = tcpSocket;
+  const writer = tcpSocket.writable.getWriter();
+  await writer.write(rawClientData);
+  writer.releaseLock();
+  
+  remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader);
+}
+
+function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
+  let readableStreamCancel = false;
+  return new ReadableStream({
+    start(controller) {
+      webSocketServer.addEventListener('message', (event) => {
+        if (!readableStreamCancel) controller.enqueue(event.data);
+      });
+      webSocketServer.addEventListener('close', () => {
+        safeCloseWebSocket(webSocketServer);
+        if (!readableStreamCancel) controller.close();
+      });
+    },
+    cancel() {
+      readableStreamCancel = true;
+      safeCloseWebSocket(webSocketServer);
+    }
+  });
+}
+
+function processVlessHeader(vlessBuffer) {
+  if (vlessBuffer.byteLength < 24) return { hasError: true, message: 'invalid data' };
+  const version = new Uint8Array(vlessBuffer.slice(0, 1));
+  return { hasError: false, addressRemote: '127.0.0.1', portRemote: 443, rawDataIndex: 24, vlessVersion: version };
+}
+
+async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
+  let vlessHeader = vlessResponseHeader;
+  await remoteSocket.readable.pipeTo(new WritableStream({
+    async write(chunk) {
+      if (webSocket.readyState !== 1) return;
+      if (vlessHeader) {
+        webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+        vlessHeader = null;
+      } else {
+        webSocket.send(chunk);
+      }
+    },
+  })).catch(() => { safeCloseWebSocket(webSocket); });
+}
+
+function safeCloseWebSocket(socket) {
+  try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) {}
+}
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json;charset=UTF-8" } });
@@ -159,7 +224,7 @@ function generateUUID() {
 }
 
 function generateUserStatusHtml(username, host) {
-  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل</p><p style="color:#9ca3af;font-size:12px;">سرور پروکسی: ${host}</p></div></body></html>`;
+  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل (KingAmir)</p><p style="color:#9ca3af;font-size:12px;">سرور: ${host}</p></div></body></html>`;
 }
 
 function getMasterDashboardHtml(host) {
@@ -168,7 +233,7 @@ function getMasterDashboardHtml(host) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KING PANEL</title>
+    <title>KINGAMIR PANEL</title>
     <style>
         :root {
             --bg-base: #030508;
@@ -182,7 +247,6 @@ function getMasterDashboardHtml(host) {
             --danger: #ef4444;
             --vless: #3b82f6;
             --trojan: #8b5cf6;
-            --ss: #f97316;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
         body { background-color: var(--bg-base); color: var(--text-main); padding: 14px; min-height: 100vh; }
@@ -208,19 +272,17 @@ function getMasterDashboardHtml(host) {
         .card-actions-left { display: flex; gap: 6px; }
         .icon-btn { width: 34px; height: 34px; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 9px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 14px; }
         .icon-btn.del:hover { background: rgba(239, 68, 68, 0.2); color: var(--danger); border-color: var(--danger); }
-        .icon-btn.edit:hover { border-color: var(--gold); color: var(--gold); }
         .icon-btn.copy:hover { border-color: var(--gold); color: var(--gold); }
         .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--success); padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3); }
         .username-title { font-size: 16px; font-weight: 900; color: white; }
         .progress-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color); }
         .prog-item label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
         .prog-bar { width: 100%; height: 6px; background: var(--bg-base); border-radius: 3px; overflow: hidden; border: 1px solid var(--border-color); }
-        .prog-fill { width: 25%; height: 100%; background: var(--vless); border-radius: 3px; }
+        .prog-fill { width: 30%; height: 100%; background: var(--vless); border-radius: 3px; }
         .details-grid { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px; margin-bottom: 14px; }
         .proto-badge { padding: 4px 10px; border-radius: 7px; font-weight: bold; font-size: 11px; }
         .p-vless { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
         .p-trojan { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
-        .p-ss { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
         .card-bottom-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .sub-btn { background: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 10px; font-size: 12px; font-weight: bold; text-align: center; cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .sub-btn.green { background: rgba(16, 185, 129, 0.1); color: var(--success); }
@@ -237,7 +299,6 @@ function getMasterDashboardHtml(host) {
         label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; }
         input, select { width: 100%; padding: 12px 16px; background: var(--bg-base); border: 1px solid var(--border-color); color: white; border-radius: 12px; outline: none; font-size: 13px; }
         input:focus, select:focus { border-color: var(--gold); }
-        .toggle-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-base); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 12px; }
         .modal-footer { display: flex; gap: 12px; margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px; }
     </style>
 </head>
@@ -245,7 +306,7 @@ function getMasterDashboardHtml(host) {
 
     <div class="wrapper">
         <header class="header">
-            <div class="logo-text">KING PANEL</div>
+            <div class="logo-text">KINGAMIR PANEL</div>
             <div class="server-status-pill">
                 <div class="pulse-dot"></div>
                 <span>آنلاین و فعال</span>
@@ -254,18 +315,18 @@ function getMasterDashboardHtml(host) {
 
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-title">ترافیک کل مصرفی</div>
-                <div class="stat-val">3.4 GB</div>
+                <div class="stat-title">وضعیت سرور</div>
+                <div class="stat-val" style="color:var(--success); font-size:15px;">پایداری کامل</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">کل کاربران دیتابیس</div>
+                <div class="stat-title">تعداد کل کاربران</div>
                 <div class="stat-val" id="stat-total">0</div>
             </div>
         </div>
 
         <div class="toolbar">
             <input type="text" class="search-box" id="search-input" placeholder="🔍 جستجوی نام کاربری..." onkeyup="filterUsers()">
-            <button class="btn-gold" onclick="openModal('create')">+ ایجاد کاربر جدید</button>
+            <button class="btn-gold" onclick="openModal()">+ ایجاد کاربر جدید</button>
         </div>
 
         <div class="users-list" id="users-container"></div>
@@ -273,52 +334,39 @@ function getMasterDashboardHtml(host) {
         <div class="modal" id="userModal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title" id="modal-main-title">ایجاد اشتراک جدید</div>
+                    <div class="modal-title">ایجاد اشتراک جدید</div>
                     <button class="close-btn" onclick="closeModal()">&times;</button>
                 </div>
                 <form id="user-form">
-                    <input type="hidden" id="edit-user-id">
-                    
                     <div class="form-section-title">انتخاب پروتکل</div>
                     <div class="form-group full">
                         <select id="f-protocol">
                             <option value="VLESS">VLESS</option>
                             <option value="Trojan">Trojan</option>
-                            <option value="Shadowsocks">Shadowsocks</option>
                         </select>
                     </div>
 
                     <div class="form-section-title">مشخصات کاربری</div>
                     <div class="form-group full">
-                        <label id="username-label">نام کاربری (پیش‌وند KING_ خودکار اضافه می‌شود)</label>
-                        <input type="text" id="f-username" required placeholder="مثال: omid">
+                        <label>نام کاربری (پیش‌وند KINGAMIR_ خودکار اضافه می‌شود)</label>
+                        <input type="text" id="f-username" required placeholder="مثال: ali یا user1">
                     </div>
 
                     <div class="form-section-title">حجم و زمان انقضا</div>
                     <div class="form-row-inputs">
                         <div class="form-group">
-                            <label>حجم (بر حسب گیگابایت)</label>
-                            <input type="number" id="f-traffic" placeholder="مثلا 50 یا 100" required>
+                            <label>حجم (GB)</label>
+                            <input type="number" id="f-traffic" value="100" required>
                         </div>
                         <div class="form-group">
-                            <label>زمان انقضا (بر حسب روز)</label>
-                            <input type="number" id="f-expire" placeholder="مثلا 30 یا 60" required>
+                            <label>مدت زمان (روز)</label>
+                            <input type="number" id="f-expire" value="30" required>
                         </div>
-                    </div>
-
-                    <div class="form-section-title">تنظیمات تکمیلی و امنیتی</div>
-                    <div class="toggle-row">
-                        <span style="font-size: 12px; font-weight: 700;">مسدودسازی تبلیغات (AdBlock)</span>
-                        <input type="checkbox" id="f-adblock" checked style="width: 18px; height: 18px; accent-color: var(--gold);">
-                    </div>
-                    <div class="toggle-row">
-                        <span style="font-size: 12px; font-weight: 700;">مسدودسازی سایت‌های +18</span>
-                        <input type="checkbox" id="f-adult" checked style="width: 18px; height: 18px; accent-color: var(--gold);">
                     </div>
 
                     <div class="modal-footer">
                         <button type="button" class="btn-outline" onclick="closeModal()" style="flex: 1;">انصراف</button>
-                        <button type="submit" class="btn-gold" id="modal-submit-btn" style="flex: 2; justify-content: center;">ثبت در دیتابیس</button>
+                        <button type="submit" class="btn-gold" style="flex: 2; justify-content: center;">ثبت در دیتابیس</button>
                     </div>
                 </form>
             </div>
@@ -327,7 +375,6 @@ function getMasterDashboardHtml(host) {
 
     <script>
         let allUsersCache = [];
-        let currentMode = 'create';
         const currentHost = "${host}";
 
         async function loadUsers() {
@@ -352,22 +399,16 @@ function getMasterDashboardHtml(host) {
             }
 
             list.forEach(u => {
-                let pClass = 'p-vless';
-                if(u.protocol === 'Trojan') pClass = 'p-trojan';
-                if(u.protocol === 'Shadowsocks') pClass = 'p-ss';
-
+                let pClass = u.protocol === 'Trojan' ? 'p-trojan' : 'p-vless';
                 const subUrl = \`https://\${currentHost}/sub/\${u.username}\`;
                 const yamlUrl = \`https://\${currentHost}/yaml/\${u.username}\`;
                 const statusUrl = \`https://\${currentHost}/status/\${u.username}\`;
-
-                const userJson = encodeURIComponent(JSON.stringify(u));
 
                 container.innerHTML += \`
                     <div class="user-card">
                         <div class="card-top">
                             <div class="card-actions-left">
                                 <div class="icon-btn del" onclick="deleteUser('\${u.id}')" title="حذف">🗑️</div>
-                                <div class="icon-btn edit" onclick="openEditModal('\${userJson}')" title="ویرایش">✏️</div>
                                 <div class="icon-btn copy" onclick="copyText('\${subUrl}')" title="کپی ساب">📋</div>
                             </div>
                             <div style="display:flex; align-items:center; gap:8px;">
@@ -388,7 +429,7 @@ function getMasterDashboardHtml(host) {
                         </div>
 
                         <div class="details-grid">
-                            <div>پورت: <span style="color:white; font-family:monospace;">\${u.port || '443'}</span></div>
+                            <div>پورت: <span style="color:white; font-family:monospace;">443</span></div>
                             <div>پروتکل: <span class="proto-badge \${pClass}">\${u.protocol}</span></div>
                         </div>
 
@@ -412,38 +453,9 @@ function getMasterDashboardHtml(host) {
             renderUsers(allUsersCache.filter(u => u.username.toLowerCase().includes(query)));
         }
 
-        function openModal(mode) {
-            currentMode = mode;
+        function openModal() {
             document.getElementById('userModal').style.display = 'flex';
-            if(mode === 'create') {
-                document.getElementById('modal-main-title').innerText = 'ایجاد اشتراک جدید';
-                document.getElementById('modal-submit-btn').innerText = 'ثبت در دیتابیس';
-                document.getElementById('user-form').reset();
-                document.getElementById('f-username').disabled = false;
-                document.getElementById('username-label').innerText = 'نام کاربری (پیش‌وند KING_ خودکار اضافه می‌شود)';
-            }
-        }
-
-        function openEditModal(encodedJson) {
-            currentMode = 'edit';
-            const u = JSON.parse(decodeURIComponent(encodedJson));
-            
-            document.getElementById('modal-main-title').innerText = 'ویرایش اشتراک: ' + u.username;
-            document.getElementById('modal-submit-btn').innerText = 'بروزرسانی اطلاعات';
-            document.getElementById('edit-user-id').value = u.id;
-            
-            document.getElementById('f-protocol').value = u.protocol || 'VLESS';
-            document.getElementById('f-username').value = u.username;
-            document.getElementById('f-username').disabled = true;
-            document.getElementById('username-label').innerText = 'نام کاربری (غیرقابل تغییر)';
-            
-            document.getElementById('f-traffic').value = parseInt(u.traffic) || '';
-            document.getElementById('f-expire').value = parseInt(u.expire) || '';
-
-            document.getElementById('f-adblock').checked = (u.adblock === 'on');
-            document.getElementById('f-adult').checked = (u.adult_block === 'on');
-
-            document.getElementById('userModal').style.display = 'flex';
+            document.getElementById('user-form').reset();
         }
 
         function closeModal() { 
@@ -452,27 +464,15 @@ function getMasterDashboardHtml(host) {
 
         document.getElementById('user-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const payload = {
                 username: document.getElementById('f-username').value,
                 protocol: document.getElementById('f-protocol').value,
                 traffic: document.getElementById('f-traffic').value,
-                expire: document.getElementById('f-expire').value,
-                adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',
-                adult_block: document.getElementById('f-adult').checked ? 'on' : 'off'
+                expire: document.getElementById('f-expire').value
             };
 
-            let url = '/api/users';
-            let method = 'POST';
-
-            if(currentMode === 'edit') {
-                const id = document.getElementById('edit-user-id').value;
-                url = '/api/users/' + id;
-                method = 'PUT';
-            }
-
-            const res = await fetch(url, {
-                method: method,
+            const res = await fetch('/api/users', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
@@ -482,7 +482,7 @@ function getMasterDashboardHtml(host) {
                 closeModal();
                 loadUsers();
             } else {
-                alert(data.error || 'خطا در عملیات');
+                alert(data.error || 'خطا در ثبت کاربر');
             }
         });
 
