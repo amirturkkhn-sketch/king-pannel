@@ -13,6 +13,7 @@ export default {
 const proxyDomain = "king-proxy.quzalkexuyzs.workers.dev";
 
 
+
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
