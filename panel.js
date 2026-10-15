@@ -17,7 +17,7 @@ export default {
     }
 
     // لینک ثابت پنل و پروکسی شما
-    const proxyDomain = "kingamir.quzalkexuyzs.workers.dev";
+    const proxyDomain = "kingpanel.quzalkexuyzs.workers.dev";
 
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
