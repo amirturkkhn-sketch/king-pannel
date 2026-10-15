@@ -10,7 +10,8 @@ export default {
     }
 
     // آدرس ورکر پروکسی خود را (پروژه اول) اینجا قرار دهید
-    const proxyDomain = "king-proxy.workers.dev";
+const proxyDomain = "king-proxy.quzalkexuyzs.workers.dev";
+
 
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
