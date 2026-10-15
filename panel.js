@@ -9,8 +9,9 @@ export default {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
-    // آدرس ورکر پروکسی خود را اینجا قرار دهید
-    const proxyDomain = "king-proxy.quzalkexuyzs.workers.dev";
+    // آدرس ورکر پروکسی شما (که ترافیک را هدایت می‌کند)
+    // اگر پروکسی روی همین ورکر است یا ورکر جداست، آدرس آن را اینجا وارد کنید:
+    const proxyDomain = "king-panne0.quzalkexuyzs.workers.dev";
 
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
