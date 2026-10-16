@@ -22,19 +22,20 @@ export default {
       }
     } catch(e) {}
 
-    // خروجی چندگانه و استاندارد ساب‌سکریپشن برای جلوگیری از خطای کلاینت
+    // ساب‌سکریپشن چندگانه با پشتیبانی از پورت انتخابی کاربر
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
       if (!user) return new Response("User not found", { status: 404 });
 
       const uUuid = user.uuid;
+      const uPort = user.port || "443";
       const encodedName = encodeURIComponent(user.username);
 
-      const vlessLink = "vless://" + uUuid + "@" + activeCleanIp + ":443?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
-      const trojanLink = "trojan://" + uUuid + "@" + activeCleanIp + ":443?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-Trojan";
+      const vlessLink = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
+      const trojanLink = "trojan://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-Trojan";
       const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
-      const ssLink = "ss://" + auth + "@" + activeCleanIp + ":443#" + encodedName + "-SS";
+      const ssLink = "ss://" + auth + "@" + activeCleanIp + ":" + uPort + "#" + encodedName + "-SS";
 
       const allConfigs = vlessLink + "\n" + trojanLink + "\n" + ssLink;
 
@@ -52,7 +53,8 @@ export default {
       if (!user) return new Response("User not found", { status: 404 });
 
       const uUuid = user.uuid;
-      const yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: 443\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      const uPort = user.port || "443";
+      const yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
@@ -115,6 +117,7 @@ export default {
 
       const username = rawName.toUpperCase().startsWith("KINGAMIR_") ? rawName : "KINGAMIR_" + rawName;
       const protocol = body.protocol || "VLESS";
+      const port = body.port || "443";
       const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
       const expire = body.expire ? body.expire + " روز" : "30 روز";
       const adblock = body.adblock || "on";
@@ -127,8 +130,8 @@ export default {
       const uuid = generateUUID();
 
       await env.DB.prepare(
-        "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', ?, ?, 'active')"
-      ).bind(id, username, uuid, protocol, traffic, expire, adblock, adult_block).run();
+        "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, 'active')"
+      ).bind(id, username, uuid, protocol, traffic, expire, port, adblock, adult_block).run();
 
       return jsonResponse({ success: true, message: "کاربر ثبت شد." });
     }
@@ -283,13 +286,26 @@ function getMasterDashboardHtml(host) {
                     <button class="close-btn" onclick="closeModal()">&times;</button>
                 </div>
                 <form id="user-form">
-                    <div class="form-section-title">انتخاب پروتکل</div>
-                    <div class="form-group full">
-                        <select id="f-protocol">
-                            <option value="VLESS">VLESS</option>
-                            <option value="Trojan">Trojan</option>
-                            <option value="Shadowsocks">Shadowsocks</option>
-                        </select>
+                    <div class="form-section-title">انتخاب پروتکل و پورت</div>
+                    <div class="form-row-inputs">
+                        <div class="form-group">
+                            <label>پروتکل</label>
+                            <select id="f-protocol">
+                                <option value="VLESS">VLESS</option>
+                                <option value="Trojan">Trojan</option>
+                                <option value="Shadowsocks">Shadowsocks</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>پورت اتصال</label>
+                            <select id="f-port">
+                                <option value="443">443 (پیش‌فرض)</option>
+                                <option value="2053">2053</option>
+                                <option value="2083">2083</option>
+                                <option value="2087">2087</option>
+                                <option value="8443">8443</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="form-section-title">مشخصات کاربری</div>
@@ -389,6 +405,7 @@ function getMasterDashboardHtml(host) {
                 let pClass = 'p-vless';
                 if(u.protocol === 'Trojan') pClass = 'p-trojan';
                 if(u.protocol === 'Shadowsocks') pClass = 'p-ss';
+                const userPort = u.port || '443';
 
                 const subUrl = 'https://' + currentHost + '/sub/' + u.username;
                 const yamlUrl = 'https://' + currentHost + '/yaml/' + u.username;
@@ -416,7 +433,7 @@ function getMasterDashboardHtml(host) {
                         '</div>' +
                     '</div>' +
                     '<div class="details-grid">' +
-                        '<div>پورت: <span style="color:white; font-family:monospace;">443</span></div>' +
+                        '<div>پورت: <span style="color:white; font-family:monospace;">' + userPort + '</span></div>' +
                         '<div>پروتکل: <span class="proto-badge ' + pClass + '">' + u.protocol + '</span></div>' +
                     '</div>' +
                     '<div class="card-bottom-btns">' +
@@ -509,6 +526,7 @@ function getMasterDashboardHtml(host) {
             const payload = {
                 username: document.getElementById('f-username').value,
                 protocol: document.getElementById('f-protocol').value,
+                port: document.getElementById('f-port').value,
                 traffic: document.getElementById('f-traffic').value,
                 expire: document.getElementById('f-expire').value,
                 adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',
