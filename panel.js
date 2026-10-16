@@ -1,566 +1,962 @@
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const host = url.host;
+    const host = url.hostname;
 
     if (!env.DB) {
-      return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
+      return new Response("خطا: دیتابیس D1 متصل نشده است.", {
+        status: 500
+      });
     }
 
     try {
-      await env.DB.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
-      await env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, uuid TEXT, protocol TEXT, traffic TEXT, expire TEXT, port TEXT, tls TEXT, adblock TEXT, adult_block TEXT, status TEXT)").run();
-    } catch(e) {}
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        )
+      `).run();
 
-    let activeCleanIp = host;
-    try {
-      const savedIp = await env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first();
-      if (savedIp && savedIp.value) {
-        activeCleanIp = savedIp.value;
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          username TEXT,
+          uuid TEXT,
+          protocol TEXT,
+          traffic TEXT,
+          expire TEXT,
+          port TEXT,
+          tls TEXT,
+          adblock TEXT,
+          adult_block TEXT,
+          status TEXT
+        )
+      `).run();
+    } catch (error) {
+      return json({
+        success: false,
+        error: "خطای آماده‌سازی دیتابیس."
+      }, 500);
+    }
+
+    const activeRow = await env.DB
+      .prepare("SELECT value FROM settings WHERE key = 'clean_ip'")
+      .first()
+      .catch(() => null);
+
+    const activeCleanIp = activeRow?.value || host;
+
+    // -----------------------------------------------------
+    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS
+    // -----------------------------------------------------
+
+    if (
+      (path.startsWith("/sub/") || path.startsWith("/yaml/")) &&
+      method === "GET"
+    ) {
+      const username = decodeURIComponent(path.split("/")[2] || "");
+
+      if (!username) {
+        return new Response("Username required", { status: 400 });
       }
-    } catch(e) {}
 
-    if (path.startsWith("/sub/") && method === "GET") {
-      const username = path.split("/")[2];
-      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
-      if (!user) return new Response("User not found", { status: 404 });
+      const user = await env.DB
+        .prepare("SELECT * FROM users WHERE username = ?")
+        .bind(username)
+        .first();
 
-      const uUuid = user.uuid;
-      const uPort = user.port || "443";
+      if (!user) {
+        return new Response("User not found", { status: 404 });
+      }
+
+      if (user.status === "disabled") {
+        return new Response("Subscription disabled", { status: 403 });
+      }
+
+      const port = Number(user.port || 443);
+
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return new Response("Invalid port", { status: 500 });
+      }
+
       const protocol = (user.protocol || "VLESS").toLowerCase();
-      const encodedName = encodeURIComponent(user.username);
+      const name = encodeURIComponent(user.username);
+      let config = "";
 
-      let singleConfig = "";
       if (protocol === "vless") {
-        singleConfig = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
+        config =
+          `vless://${user.uuid}@${activeCleanIp}:${port}` +
+          `?encryption=none&security=tls` +
+          `&sni=${encodeURIComponent(host)}` +
+          `&fp=chrome&type=ws` +
+          `&host=${encodeURIComponent(host)}` +
+          `&path=%2F%3Fed%3D2048#${name}`;
       } else if (protocol === "trojan") {
-        singleConfig = "trojan://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
-      } else if (protocol === "shadowsocks" || protocol === "ss") {
-        const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
-        singleConfig = "ss://" + auth + "@" + activeCleanIp + ":" + uPort + "#" + encodedName;
+        config =
+          `trojan://${user.uuid}@${activeCleanIp}:${port}` +
+          `?security=tls` +
+          `&sni=${encodeURIComponent(host)}` +
+          `&type=ws` +
+          `&host=${encodeURIComponent(host)}` +
+          `&path=%2F%3Fed%3D2048#${name}`;
+      } else if (
+        protocol === "shadowsocks" ||
+        protocol === "ss"
+      ) {
+        return new Response(
+          "در این نسخه خروجی Shadowsocks نیاز به تنظیم جداگانه دارد.",
+          { status: 501 }
+        );
       } else {
-        singleConfig = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
+        return new Response("Unsupported protocol", { status: 400 });
       }
 
-      const encodedBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(singleConfig)));
+      if (path.startsWith("/yaml/")) {
+        const yaml = [
+          "proxies:",
+          `  - name: "${yamlEscape(user.username)}"`,
+          `    type: ${protocol}`,
+          `    server: "${yamlEscape(activeCleanIp)}"`,
+          `    port: ${port}`,
+          protocol === "vless"
+            ? `    uuid: "${user.uuid}"`
+            : `    password: "${user.uuid}"`,
+          protocol === "vless"
+            ? "    encryption: none"
+            : "",
+          "    network: ws",
+          "    tls: true",
+          `    servername: "${yamlEscape(host)}"`,
+          "    skip-cert-verify: false",
+          "    ws-opts:",
+          '      path: "/?ed=2048"',
+          "      headers:",
+          `        Host: "${yamlEscape(host)}"`
+        ].filter(Boolean).join("\n");
 
-      return new Response(encodedBase64, {
-        headers: { "Content-Type": "text/plain;charset=UTF-8", "Cache-Control": "no-store" }
-      });
-    }
-
-    if (path.startsWith("/yaml/") && method === "GET") {
-      const username = path.split("/")[2];
-      const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
-      if (!user) return new Response("User not found", { status: 404 });
-
-      const uUuid = user.uuid;
-      const uPort = user.port || "443";
-      const proto = (user.protocol || "vless").toLowerCase();
-      
-      let yamlContent = "";
-      if (proto === "vless") {
-        yamlContent = "proxies:\n  - name: \"" + user.username + "\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
-      } else if (proto === "trojan") {
-        yamlContent = "proxies:\n  - name: \"" + user.username + "\"\n    type: trojan\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    password: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
-      } else {
-        yamlContent = "proxies:\n  - name: \"" + user.username + "\"\n    type: shadowsocks\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    password: " + uUuid + "\n    cipher: chacha20-ietf-poly1305";
+        return new Response(yaml, {
+          headers: {
+            "Content-Type": "text/yaml; charset=UTF-8",
+            "Cache-Control": "no-store"
+          }
+        });
       }
 
-      return new Response(yamlContent, {
-        headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
-      });
+      return new Response(
+        btoa(unescape(encodeURIComponent(config))),
+        {
+          headers: {
+            "Content-Type": "text/plain; charset=UTF-8",
+            "Cache-Control": "no-store"
+          }
+        }
+      );
     }
+
+    // -----------------------------------------------------
+    // USER STATUS
+    // -----------------------------------------------------
 
     if (path.startsWith("/status/") && method === "GET") {
-      const username = path.split("/")[2];
-      return new Response(generateUserStatusHtml(username, host), {
-        headers: { "Content-Type": "text/html;charset=UTF-8" }
-      });
+      const username = decodeURIComponent(path.split("/")[2] || "");
+
+      const user = await env.DB
+        .prepare("SELECT username, status FROM users WHERE username = ?")
+        .bind(username)
+        .first();
+
+      if (!user) {
+        return new Response("کاربر پیدا نشد.", { status: 404 });
+      }
+
+      return html(`
+        <!doctype html>
+        <html lang="fa" dir="rtl">
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>وضعیت اشتراک</title>
+        <body style="background:#030508;color:#fff;font-family:sans-serif;padding:30px">
+          <main style="max-width:480px;margin:auto;background:#0a0e17;padding:25px;border-radius:18px">
+            <h2 style="color:#f59e0b">${escapeHtml(user.username)}</h2>
+            <p>وضعیت حساب:
+              ${user.status === "disabled" ? "غیرفعال" : "فعال"}
+            </p>
+            <p style="color:#9ca3af">
+              فعال بودن حساب به معنی تأیید اتصال واقعی نیست.
+            </p>
+          </main>
+        </body>
+        </html>
+      `);
     }
+
+    // -----------------------------------------------------
+    // GET USERS AND SAVED IPS
+    // -----------------------------------------------------
 
     if (path === "/api/users" && method === "GET") {
-      const { results } = await env.DB.prepare("SELECT * FROM users").all();
-      let ipsList = [];
-      try {
-        const ipRows = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
-        if(ipRows && ipRows.results) {
-          ipsList = ipRows.results.map(r => ({ id: r.key, ip: r.value }));
-        }
-      } catch(e) {}
+      const usersResult = await env.DB
+        .prepare("SELECT * FROM users ORDER BY rowid DESC")
+        .all();
 
-      return jsonResponse({
+      const ipsResult = await env.DB
+        .prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'")
+        .all();
+
+      return json({
         success: true,
-        users: results || [],
-        activeCleanIp: activeCleanIp,
-        savedIps: ipsList,
+        users: usersResult.results || [],
+        savedIps: (ipsResult.results || []).map(row => ({
+          id: row.key,
+          ip: row.value
+        })),
+        activeCleanIp,
         metrics: {
-          total: (results || []).length,
-          active: (results || []).filter(u => u.status === 'active').length,
+          total: (usersResult.results || []).length,
+          active: (usersResult.results || []).filter(
+            user => user.status === "active"
+          ).length
         }
       });
     }
 
-    if (path === "/api/set-clean-ip" && method === "POST") {
-      const body = await request.json();
-      const ip = body.ip ? body.ip.trim() : "";
-      if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
-
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
-      const ipKey = "ip_" + ip.replace(/[\.\:]/g, "_");
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(ipKey, ip).run();
-
-      return jsonResponse({ success: true, message: "آی‌پی با موفقیت ثبت شد." });
-    }
-
-    if (path.startsWith("/api/delete-ip/") && method === "DELETE") {
-      const ipKey = path.split("/")[3];
-      await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(ipKey).run();
-      return jsonResponse({ success: true });
-    }
+    // -----------------------------------------------------
+    // ADD OR EDIT USER
+    // -----------------------------------------------------
 
     if (path === "/api/users" && method === "POST") {
-      const body = await request.json();
-      let rawName = body.username ? body.username.trim() : "";
-      if (!rawName) return jsonResponse({ error: "نام کاربری الزامی است." }, 400);
+      const body = await readJson(request);
 
-      const username = rawName.toUpperCase().startsWith("👑KING_") ? rawName : "👑KING_" + rawName;
-      const protocol = body.protocol || "VLESS";
-      const port = body.port || "443";
-      const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
-      const expire = body.expire ? body.expire + " روز" : "30 روز";
-      const adblock = body.adblock || "on";
-      const adult_block = body.adult_block || "on";
-      const status = body.status || "active";
+      if (!body) {
+        return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);
+      }
+
+      const rawName = String(body.username || "").trim();
+
+      if (!rawName) {
+        return json({ error: "نام کاربری الزامی است." }, 400);
+      }
+
+      const username = rawName.toUpperCase().startsWith("👑KING_")
+        ? rawName
+        : "👑KING_" + rawName;
+
+      const protocol = String(body.protocol || "VLESS");
+      const allowedProtocols = ["VLESS", "Trojan", "Shadowsocks"];
+
+      if (!allowedProtocols.includes(protocol)) {
+        return json({ error: "پروتکل معتبر نیست." }, 400);
+      }
+
+      const port = String(body.port || "443");
+      const allowedPorts = ["443", "2053", "2083", "2087", "8443"];
+
+      if (!allowedPorts.includes(port)) {
+        return json({ error: "پورت معتبر نیست." }, 400);
+      }
+
+      const trafficNumber = Number(body.traffic ?? 100);
+      const expireNumber = Number(body.expire ?? 30);
+
+      if (
+        !Number.isFinite(trafficNumber) ||
+        trafficNumber <= 0 ||
+        !Number.isFinite(expireNumber) ||
+        expireNumber <= 0
+      ) {
+        return json({
+          error: "حجم و مدت اعتبار باید عدد مثبت باشند."
+        }, 400);
+      }
+
+      const traffic = `${trafficNumber} GB`;
+      const expire = `${expireNumber} روز`;
+      const adblock = body.adblock === "off" ? "off" : "on";
+      const adultBlock = body.adult_block === "off" ? "off" : "on";
+      const status = body.status === "disabled" ? "disabled" : "active";
 
       if (body.id) {
-        await env.DB.prepare(
-          "UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, adblock = ?, adult_block = ?, status = ? WHERE id = ?"
-        ).bind(protocol, traffic, expire, port, adblock, adult_block, status, body.id).run();
-        return jsonResponse({ success: true, message: "کاربر با موفقیت ویرایش شد." });
-      } else {
-        const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
-        if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
+        const existing = await env.DB
+          .prepare("SELECT id FROM users WHERE id = ?")
+          .bind(String(body.id))
+          .first();
 
-        const id = "usr_" + Date.now();
-        const uuid = generateUUID();
+        if (!existing) {
+          return json({ error: "کاربر پیدا نشد." }, 404);
+        }
 
-        await env.DB.prepare(
-          "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, ?)"
-        ).bind(id, username, uuid, protocol, traffic, expire, port, adblock, adult_block, status).run();
+        await env.DB.prepare(`
+          UPDATE users
+          SET protocol = ?, traffic = ?, expire = ?, port = ?,
+              adblock = ?, adult_block = ?, status = ?
+          WHERE id = ?
+        `).bind(
+          protocol, traffic, expire, port,
+          adblock, adultBlock, status, String(body.id)
+        ).run();
 
-        return jsonResponse({ success: true, message: "کاربر ثبت شد." });
+        return json({
+          success: true,
+          message: "کاربر ویرایش شد."
+        });
+      }
+
+      const existing = await env.DB
+        .prepare("SELECT id FROM users WHERE username = ?")
+        .bind(username)
+        .first();
+
+      if (existing) {
+        return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
+      }
+
+      const id = "usr_" + crypto.randomUUID();
+      const uuid = crypto.randomUUID();
+
+      await env.DB.prepare(`
+        INSERT INTO users
+        (id, username, uuid, protocol, traffic, expire, port,
+         tls, adblock, adult_block, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, ?)
+      `).bind(
+        id, username, uuid, protocol, traffic, expire, port,
+        adblock, adultBlock, status
+      ).run();
+
+      return json({
+        success: true,
+        message: "کاربر ثبت شد."
+      });
+    }
+
+    // -----------------------------------------------------
+    // DELETE USER
+    // -----------------------------------------------------
+
+    if (path.startsWith("/api/users/") && method === "DELETE") {
+      const id = decodeURIComponent(path.slice("/api/users/".length));
+
+      if (!id) {
+        return json({ error: "شناسه کاربر الزامی است." }, 400);
+      }
+
+      await env.DB
+        .prepare("DELETE FROM users WHERE id = ?")
+        .bind(id)
+        .run();
+
+      return json({ success: true });
+    }
+
+    // -----------------------------------------------------
+    // SAVE AND ACTIVATE CLEAN IP
+    // -----------------------------------------------------
+
+    if (path === "/api/set-clean-ip" && method === "POST") {
+      const body = await readJson(request);
+
+      if (!body) {
+        return json({ error: "درخواست نامعتبر است." }, 400);
+      }
+
+      const ip = String(body.ip || "").trim();
+
+      if (!isValidIp(ip)) {
+        return json({ error: "قالب IPv4 یا IPv6 معتبر نیست." }, 400);
+      }
+
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES (?, ?)
+      `).bind(makeIpKey(ip), ip).run();
+
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES ('clean_ip', ?)
+      `).bind(ip).run();
+
+      return json({
+        success: true,
+        activeCleanIp: ip,
+        message: "IP ذخیره و انتخاب شد."
+      });
+    }
+
+    // -----------------------------------------------------
+    // IMPORT MULTIPLE IPS
+    // -----------------------------------------------------
+
+    if (path === "/api/import-ips" && method === "POST") {
+      const body = await readJson(request);
+
+      if (!body || typeof body.ips !== "string") {
+        return json({
+          error: "فیلد ips باید شامل فهرست IPها باشد."
+        }, 400);
+      }
+
+      const input = [...new Set(
+        body.ips.split(/[\s,;]+/).map(ip => ip.trim()).filter(Boolean)
+      )];
+
+      if (input.length === 0 || input.length > 500) {
+        return json({
+          error: "تعداد IP باید بین ۱ تا ۵۰۰ باشد."
+        }, 400);
+      }
+
+      const valid = input.filter(isValidIp);
+      const invalid = input.filter(ip => !isValidIp(ip));
+
+      for (const ip of valid) {
+        await env.DB.prepare(`
+          INSERT OR REPLACE INTO settings (key, value)
+          VALUES (?, ?)
+        `).bind(makeIpKey(ip), ip).run();
+      }
+
+      return json({
+        success: true,
+        saved: valid.length,
+        invalid,
+        message: `${valid.length} IP ذخیره شد.`
+      });
+    }
+
+    // -----------------------------------------------------
+    // SELECT SAVED IP
+    // -----------------------------------------------------
+
+    if (path === "/api/select-clean-ip" && method === "POST") {
+      const body = await readJson(request);
+      const ip = String(body?.ip || "").trim();
+
+      if (!isValidIp(ip)) {
+        return json({ error: "قالب IP معتبر نیست." }, 400);
+      }
+
+      const saved = await env.DB
+        .prepare("SELECT value FROM settings WHERE key = ?")
+        .bind(makeIpKey(ip))
+        .first();
+
+      if (!saved || saved.value !== ip) {
+        return json({ error: "این IP در مخزن ذخیره نشده است." }, 404);
+      }
+
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES ('clean_ip', ?)
+      `).bind(ip).run();
+
+      return json({
+        success: true,
+        activeCleanIp: ip
+      });
+    }
+
+    // -----------------------------------------------------
+    // DELETE SAVED IP
+    // -----------------------------------------------------
+
+    if (path.startsWith("/api/delete-ip/") && method === "DELETE") {
+      const key = decodeURIComponent(path.slice("/api/delete-ip/".length));
+
+      if (!/^ip_[a-zA-Z0-9_]+$/.test(key)) {
+        return json({ error: "شناسه IP معتبر نیست." }, 400);
+      }
+
+      const row = await env.DB
+        .prepare("SELECT value FROM settings WHERE key = ?")
+        .bind(key)
+        .first();
+
+      if (!row) {
+        return json({ error: "IP پیدا نشد." }, 404);
+      }
+
+      const active = await env.DB
+        .prepare("SELECT value FROM settings WHERE key = 'clean_ip'")
+        .first();
+
+      await env.DB
+        .prepare("DELETE FROM settings WHERE key = ?")
+        .bind(key)
+        .run();
+
+      if (active?.value === row.value) {
+        await env.DB
+          .prepare("DELETE FROM settings WHERE key = 'clean_ip'")
+          .run();
+      }
+
+      return json({ success: true });
+    }
+
+    // -----------------------------------------------------
+    // OFFICIAL CLOUDFLARE IP RANGES
+    // -----------------------------------------------------
+
+    if (path === "/api/cloudflare-ranges" && method === "GET") {
+      try {
+        const [r4, r6] = await Promise.all([
+          fetch("https://www.cloudflare.com/ips-v4"),
+          fetch("https://www.cloudflare.com/ips-v6")
+        ]);
+
+        if (!r4.ok || !r6.ok) {
+          throw new Error("Failed to fetch ranges");
+        }
+
+        const [ipv4, ipv6] = await Promise.all([
+          r4.text(),
+          r6.text()
+        ]);
+
+        return json({
+          success: true,
+          ipv4: ipv4.trim().split(/\s+/).filter(Boolean),
+          ipv6: ipv6.trim().split(/\s+/).filter(Boolean),
+          note: "این‌ها محدوده‌های رسمی Cloudflare هستند، نه IPهای تست‌شده."
+        });
+      } catch {
+        return json({
+          success: false,
+          error: "دریافت محدوده‌های Cloudflare ناموفق بود."
+        }, 502);
       }
     }
 
-    if (path.startsWith("/api/users/") && method === "DELETE") {
-      const id = path.split("/")[3];
-      await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
-      return jsonResponse({ success: true });
-    }
+    // -----------------------------------------------------
+    // DASHBOARD
+    // -----------------------------------------------------
 
-    return new Response(getMasterDashboardHtml(host), {
-      headers: { "Content-Type": "text/html;charset=UTF-8" }
-    });
+    return html(dashboard(host));
   }
 };
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json;charset=UTF-8" } });
-}
 
-function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
+// =========================================================
+// HELPERS
+// =========================================================
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=UTF-8",
+      "Cache-Control": "no-store"
+    }
   });
 }
 
-function generateUserStatusHtml(username, host) {
-  return "<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charset=\"UTF-8\"><title>وضعیت " + username + "</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class=\"card\"><h2 style=\"color:#f59e0b;\">" + username + "</h2><p style=\"color:#10b981;font-weight:bold;\">● اشتراک فعال و متصل (KingAmir)</p><p style=\"color:#9ca3af;font-size:12px;\">سرور اصلی: " + host + "</p></div></body></html>";
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
 }
 
-function getMasterDashboardHtml(host) {
-  return "<!DOCTYPE html>\n" +
-  "<html lang=\"fa\" dir=\"rtl\">\n" +
-  "<head>\n" +
-  "    <meta charset=\"UTF-8\">\n" +
-  "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" +
-  "    <title>KINGAMIR PANEL</title>\n" +
-  "    <style>\n" +
-  "        :root {\n" +
-  "            --bg-base: #030508;\n" +
-  "            --bg-card: #0a0e17;\n" +
-  "            --border-color: #1e2634;\n" +
-  "            --border-gold: rgba(245, 158, 11, 0.4);\n" +
-  "            --gold: #f59e0b;\n" +
-  "            --text-main: #f3f4f6;\n" +
-  "            --text-muted: #9ca3af;\n" +
-  "            --success: #10b981;\n" +
-  "            --danger: #ef4444;\n" +
-  "            --vless: #3b82f6;\n" +
-  "            --trojan: #8b5cf6;\n" +
-  "            --ss: #f97316;\n" +
-  "        }\n" +
-  "        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }\n" +
-  "        body { background-color: var(--bg-base); color: var(--text-main); padding: 14px; min-height: 100vh; }\n" +
-  "        .wrapper { max-width: 1400px; margin: 0 auto; }\n" +
-  "        .header { display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 1px solid var(--border-color); padding: 16px 22px; border-radius: 16px; margin-bottom: 18px; }\n" +
-  "        .logo-text { font-size: 22px; font-weight: 900; color: var(--gold); letter-spacing: 2px; }\n" +
-  "        .server-status-pill { display: flex; align-items: center; gap: 8px; font-size: 12px; background: rgba(16, 185, 129, 0.12); color: var(--success); padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; }\n" +
-  "        .pulse-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; box-shadow: 0 0 10px var(--success); animation: pulse 2s infinite; }\n" +
-  "        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }\n" +
-  "        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }\n" +
-  "        .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 16px; border-radius: 14px; position: relative; overflow: hidden; }\n" +
-  "        .stat-card::after { content: ''; position: absolute; top: 0; right: 0; width: 4px; height: 100%; background: var(--gold); }\n" +
-  "        .stat-title { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase; }\n" +
-  "        .stat-val { font-size: 16px; font-weight: 900; color: var(--text-main); }\n" +
-  "        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; background: var(--bg-card); border: 1px solid var(--border-color); padding: 14px 18px; border-radius: 14px; gap: 12px; flex-wrap: wrap; }\n" +
-  "        .search-box { flex: 1; min-width: 250px; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 12px; padding: 11px 16px; color: white; outline: none; font-size: 13px; }\n" +
-  "        .search-box:focus { border-color: var(--gold); }\n" +
-  "        .btn-gold { background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; border: none; padding: 11px 22px; font-weight: 900; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.35); }\n" +
-  "        .btn-outline { background: var(--bg-base); color: var(--text-main); border: 1px solid var(--border-color); padding: 11px 18px; font-weight: 700; border-radius: 12px; cursor: pointer; font-size: 13px; }\n" +
-  "        .users-list { display: flex; flex-direction: column; gap: 14px; }\n" +
-  "        .user-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 18px; }\n" +
-  "        .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }\n" +
-  "        .card-actions-left { display: flex; gap: 6px; }\n" +
-  "        .icon-btn { width: 34px; height: 34px; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 9px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 14px; }\n" +
-  "        .icon-btn.del:hover { background: rgba(239, 68, 68, 0.2); color: var(--danger); border-color: var(--danger); }\n" +
-  "        .icon-btn.copy:hover { border-color: var(--gold); color: var(--gold); }\n" +
-  "        .icon-btn.edit:hover { border-color: var(--vless); color: var(--vless); }\n" +
-  "        .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--success); padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3); }\n" +
-  "        .badge-disabled { background: rgba(239, 68, 68, 0.15); color: var(--danger); padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.3); }\n" +
-  "        .username-title { font-size: 16px; font-weight: 900; color: white; }\n" +
-  "        .progress-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color); }\n" +
-  "        .prog-item label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }\n" +
-  "        .prog-bar { width: 100%; height: 6px; background: var(--bg-base); border-radius: 3px; overflow: hidden; border: 1px solid var(--border-color); }\n" +
-  "        .prog-fill { width: 30%; height: 100%; background: var(--vless); border-radius: 3px; }\n" +
-  "        .details-grid { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px; margin-bottom: 14px; }\n" +
-  "        .proto-badge { padding: 4px 10px; border-radius: 7px; font-weight: bold; font-size: 11px; }\n" +
-  "        .p-vless { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }\n" +
-  "        .p-trojan { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }\n" +
-  "        .p-ss { background: rgba(249, 115, 22, 0.15); color: #fb923c; }\n" +
-  "        .card-bottom-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }\n" +
-  "        .sub-btn { background: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 10px; font-size: 12px; font-weight: bold; text-align: center; cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; }\n" +
-  "        .sub-btn.green { background: rgba(16, 185, 129, 0.1); color: var(--success); }\n" +
-  "        .sub-btn.purple { background: rgba(139, 92, 246, 0.1); color: #a78bfa; grid-column: span 2; }\n" +
-  "        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3,5,8,0.88); backdrop-filter: blur(10px); justify-content: center; align-items: center; padding: 15px; z-index: 2000; }\n" +
-  "        .modal-content { background: var(--bg-card); border: 1px solid var(--border-gold); width: 100%; max-width: 650px; padding: 28px; border-radius: 20px; max-height: 90vh; overflow-y: auto; }\n" +
-  "        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; border-bottom: 1px solid var(--border-color); padding-bottom: 14px; }\n" +
-  "        .modal-title { color: var(--gold); font-size: 18px; font-weight: 900; }\n" +
-  "        .close-btn { background: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-muted); width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }\n" +
-  "        .form-section-title { font-size: 12px; color: var(--gold); font-weight: bold; margin: 16px 0 8px 0; border-bottom: 1px dashed var(--border-color); padding-bottom: 4px; }\n" +
-  "        .form-group { margin-bottom: 14px; }\n" +
-  "        .form-group.full { grid-column: span 2; }\n" +
-  "        .form-row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }\n" +
-  "        label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; }\n" +
-  "        input, select, textarea { width: 100%; padding: 12px 16px; background: var(--bg-base); border: 1px solid var(--border-color); color: white; border-radius: 12px; outline: none; font-size: 13px; }\n" +
-  "        input:focus, select:focus, textarea:focus { border-color: var(--gold); }\n" +
-  "        .toggle-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-base); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 12px; }\n" +
-  "        .modal-footer { display: flex; gap: 12px; margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px; }\n" +
-  "        .ip-list-container { margin-top: 15px; max-height: 160px; overflow-y: auto; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; }\n" +
-  "        .ip-item-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border-color); font-size: 12px; font-family: monospace; }\n" +
-  "        .ip-item-row:last-child { border-bottom: none; }\n" +
-  "        .del-ip-btn { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-family: sans-serif; font-weight: bold; }\n" +
-  "        .del-ip-btn:hover { background: var(--danger); color: white; }\n" +
-  "    </style>\n" +
-  "</head>\n" +
-  "<body>\n" +
-  "    <div class=\"wrapper\">\n" +
-  "        <header class=\"header\">\n" +
-  "            <div class=\"logo-text\">KINGAMIR PANEL</div>\n" +
-  "            <div class=\"server-status-pill\">\n" +
-  "                <div class=\"pulse-dot\"></div>\n" +
-  "                <span id=\"active-ip-display\">در حال بارگذاری آی‌پی...</span>\n" +
-  "            </div>\n" +
-  "        </header>\n" +
-  "        <div class=\"stats-grid\">\n" +
-  "            <div class=\"stat-card\">\n" +
-  "                <div class=\"stat-title\">وضعیت سرور</div>\n" +
-  "                <div class=\"stat-val\" style=\"color:var(--success);\">پایداری کامل</div>\n" +
-  "            </div>\n" +
-  "            <div class=\"stat-card\">\n" +
-  "                <div class=\"stat-title\">تعداد کل کاربران</div>\n" +
-  "                <div class=\"stat-val\" id=\"stat-total\">0</div>\n" +
-  "            </div>\n" +
-  "        </div>\n" +
-  "        <div class=\"toolbar\">\n" +
-  "            <input type=\"text\" class=\"search-box\" id=\"search-input\" placeholder=\"🔍 جستجوی نام کاربری...\" onkeyup=\"filterUsers()\">\n" +
-  "            <div style=\"display: flex; gap: 8px;\">\n" +
-  "                <button class=\"btn-outline\" onclick=\"openCleanIpModal()\" style=\"border-color: var(--gold); color: var(--gold);\">⚡ مدیریت مخزن آی‌پی</button>\n" +
-  "                <button class=\"btn-gold\" onclick=\"openModal()\">+ ایجاد کاربر جدید</button>\n" +
-  "            </div>\n" +
-  "        </div>\n" +
-  "        <div class=\"users-list\" id=\"users-container\"></div>\n" +
-  "        <div class=\"modal\" id=\"userModal\">\n" +
-  "            <div class=\"modal-content\">\n" +
-  "                <div class=\"modal-header\">\n" +
-  "                    <div class=\"modal-title\" id=\"modal-main-title\">ایجاد اشتراک جدید</div>\n" +
-  "                    <button class=\"close-btn\" onclick=\"closeModal()\">&times;</button>\n" +
-  "                </div>\n" +
-  "                <form id=\"user-form\">\n" +
-  "                    <input type=\"hidden\" id=\"f-edit-id\">\n" +
-  "                    <div class=\"form-section-title\">انتخاب پروتکل و پورت</div>\n" +
-  "                    <div class=\"form-row-inputs\">\n" +
-  "                        <div class=\"form-group\">\n" +
-  "                            <label>پروتکل</label>\n" +
-  "                            <select id=\"f-protocol\">\n" +
-  "                                <option value=\"VLESS\">VLESS</option>\n" +
-  "                                <option value=\"Trojan\">Trojan</option>\n" +
-  "                                <option value=\"Shadowsocks\">Shadowsocks</option>\n" +
-  "                            </select>\n" +
-  "                        </div>\n" +
-  "                        <div class=\"form-group\">\n" +
-  "                            <label>پورت اتصال</label>\n" +
-  "                            <select id=\"f-port\">\n" +
-  "                                <option value=\"443\">443 (پیش‌فرض)</option>\n" +
-  "                                <option value=\"2053\">2053</option>\n" +
-  "                                <option value=\"2083\">2083</option>\n" +
-  "                                <option value=\"2087\">2087</option>\n" +
-  "                                <option value=\"8443\">8443</option>\n" +
-  "                            </select>\n" +
-  "                        </div>\n" +
-  "                    </div>\n" +
-  "                    <div class=\"form-section-title\">مشخصات کاربری</div>\n" +
-  "                    <div class=\"form-group full\">\n" +
-  "                        <label>نام کاربری (پیش‌وند 👑KING_ خودکار اضافه می‌شود)</label>\n" +
-  "                        <input type=\"text\" id=\"f-username\" required placeholder=\"مثال: ali یا user1\">\n" +
-  "                    </div>\n" +
-  "                    <div class=\"form-section-title\">حجم و زمان انقضا</div>\n" +
-  "                    <div class=\"form-row-inputs\">\n" +
-  "                        <div class=\"form-group\">\n" +
-  "                            <label>حجم (GB)</label>\n" +
-  "                            <input type=\"number\" id=\"f-traffic\" value=\"100\" required>\n" +
-  "                        </div>\n" +
-  "                        <div class=\"form-group\">\n" +
-  "                            <label>مدت زمان (روز)</label>\n" +
-  "                            <input type=\"number\" id=\"f-expire\" value=\"30\" required>\n" +
-  "                        </div>\n" +
-  "                    </div>\n" +
-  "                    <div class=\"form-section-title\">تنظیمات امنیتی و وضعیت</div>\n" +
-  "                    <div class=\"form-group\">\n" +
-  "                        <label>وضعیت حساب</label>\n" +
-  "                        <select id=\"f-status\">\n" +
-  "                            <option value=\"active\">فعال</option>\n" +
-  "                            <option value=\"disabled\">غیرفعال</option>\n" +
-  "                        </select>\n" +
-  "                    </div>\n" +
-  "                    <div class=\"toggle-row\">\n" +
-  "                        <span style=\"font-size: 12px; font-weight: 700;\">مسدودسازی تبلیغات (AdBlock)</span>\n" +
-  "                        <input type=\"checkbox\" id=\"f-adblock\" checked style=\"width: 18px; height: 18px; accent-color: var(--gold);\">\n" +
-  "                    </div>\n" +
-  "                    <div class=\"toggle-row\">\n" +
-  "                        <span style=\"font-size: 12px; font-weight: 700;\">مسدودسازی سایت‌های +18</span>\n" +
-  "                        <input type=\"checkbox\" id=\"f-adult\" checked style=\"width: 18px; height: 18px; accent-color: var(--gold);\">\n" +
-  "                    </div>\n" +
-  "                    <div class=\"modal-footer\">\n" +
-  "                        <button type=\"button\" class=\"btn-outline\" onclick=\"closeModal()\" style=\"flex: 1;\">انصراف</button>\n" +
-  "                        <button type=\"submit\" class=\"btn-gold\" style=\"flex: 2; justify-content: center;\">ذخیره در دیتابیس</button>\n" +
-  "                    </div>\n" +
-  "                </form>\n" +
-  "            </div>\n" +
-  "        </div>\n" +
-  "        <div class=\"modal\" id=\"cleanIpModal\">\n" +
-  "            <div class=\"modal-content\">\n" +
-  "                <div class=\"modal-header\">\n" +
-  "                    <div class=\"modal-title\">⚡ ثبت و مدیریت مخزن آی‌پی تمیز</div>\n" +
-  "                    <button class=\"close-btn\" onclick=\"closeCleanIpModal()\">&times;</button>\n" +
-  "                </div>\n" +
-  "                <div>\n" +
-  "                    <label>وارد کردن آی‌پی تمیز جدید:</label>\n" +
-  "                    <div style=\"display: flex; gap: 8px; margin-top: 8px;\">\n" +
-  "                        <input type=\"text\" id=\"ip-input-field\" placeholder=\"مثال: 104.16.132.229\" style=\"font-family: monospace; flex: 1;\">\n" +
-  "                        <button type=\"button\" class=\"btn-gold\" onclick=\"saveCleanIpDirect()\">اعمال و ذخیره</button>\n" +
-  "                    </div>\n" +
-  "                    <div class=\"form-section-title\" style=\"margin-top: 20px;\">مخزن آی‌پی‌های ذخیره‌شده (قابل حذف)</div>\n" +
-  "                    <div class=\"ip-list-container\" id=\"saved-ips-list\">\n" +
-  "                        <div style=\"text-align:center; color:var(--text-muted); padding:15px;\">در حال بارگذاری مخزن...</div>\n" +
-  "                    </div>\n" +
-  "                    <div class=\"modal-footer\">\n" +
-  "                        <button type=\"button\" class=\"btn-outline\" onclick=\"closeCleanIpModal()\" style=\"width: 100%;\">بستن پنجره</button>\n" +
-  "                    </div>\n" +
-  "                </div>\n" +
-  "            </div>\n" +
-  "        </div>\n" +
-  "    </div>\n" +
-  "    <script>\n" +
-  "        let allUsersCache = [];\n" +
-  "        let savedIpsCache = [];\n" +
-  "        const currentHost = \"" + host + "\";\n" +
-  "        async function loadUsers() {\n" +
-  "            try {\n" +
-  "                const res = await fetch('/api/users');\n" +
-  "                const data = await res.json();\n" +
-  "                if(data.success) {\n" +
-  "                    allUsersCache = data.users;\n" +
-  "                    savedIpsCache = data.savedIps || [];\n" +
-  "                    document.getElementById('stat-total').innerText = data.metrics.total;\n" +
-  "                    document.getElementById('active-ip-display').innerText = 'آی‌پی فعال: ' + data.activeCleanIp;\n" +
-  "                    renderUsers(allUsersCache);\n" +
-  "                    renderSavedIps();\n" +
-  "                }\n" +
-  "            } catch(e) { console.error(e); }\n" +
-  "        }\n" +
-  "        function renderUsers(list) {\n" +
-  "            const container = document.getElementById('users-container');\n" +
-  "            container.innerHTML = '';\n" +
-  "            if(list.length === 0) {\n" +
-  "                container.innerHTML = '<div style=\"text-align:center; color:var(--text-muted); padding:50px;\">هیچ کاربری ثبت نشده است.</div>';\n" +
-  "                return;\n" +
-  "            }\n" +
-  "            list.forEach(u => {\n" +
-  "                let pClass = 'p-vless';\n" +
-  "                if(u.protocol === 'Trojan') pClass = 'p-trojan';\n" +
-  "                if(u.protocol === 'Shadowsocks') pClass = 'p-ss';\n" +
-  "                const userPort = u.port || '443';\n" +
-  "                const isAct = u.status !== 'disabled';\n" +
-  "                const badgeHtml = isAct ? '<span class=\"badge-active\">● فعال</span>' : '<span class=\"badge-disabled\">● غیرفعال</span>';\n" +
-  "                const subUrl = 'https://' + currentHost + '/sub/' + u.username;\n" +
-  "                const yamlUrl = 'https://' + currentHost + '/yaml/' + u.username;\n" +
-  "                const statusUrl = 'https://' + currentHost + '/status/' + u.username;\n" +
-  "                container.innerHTML += '<div class=\"user-card\">' +\n" +
-  "                    '<div class=\"card-top\">' +\n" +
-  "                        '<div class=\"card-actions-left\">' +\n" +
-  "                            '<div class=\"icon-btn del\" onclick=\"deleteUser(\\'' + u.id + '\\')\" title=\"حذف\">🗑️</div>' +\n" +
-  "                            '<div class=\"icon-btn edit\" onclick=\"openEditModal(\\'' + u.id + '\\')\" title=\"ویرایش\">✏️</div>' +\n" +
-  "                            '<div class=\"icon-btn copy\" onclick=\"copyText(\\'' + subUrl + '\\')\" title=\"کپی ساب\">📋</div>' +\n" +
-  "                        '</div>' +\n" +
-  "                        '<div style=\"display:flex; align-items:center; gap:8px;\">' +\n" +
-  "                            badgeHtml +\n" +
-  "                            '<span class=\"username-title\">' + u.username + '</span>' +\n" +
-  "                        '</div>' +\n" +
-  "                    '</div>' +\n" +
-  "                    '<div class=\"progress-grid\">' +\n" +
-  "                        '<div class=\"prog-item\">' +\n" +
-  "                            '<label><span>حجم</span> <span style=\"color:white;\">' + u.traffic + '</span></label>' +\n" +
-  "                            '<div class=\"prog-bar\"><div class=\"prog-fill\"></div></div>' +\n" +
-  "                        '</div>' +\n" +
-  "                        '<div class=\"prog-item\">' +\n" +
-  "                            '<label><span>زمان</span> <span style=\"color:white;\">' + u.expire + '</span></label>' +\n" +
-  "                            '<div class=\"prog-bar\"><div class=\"prog-fill\" style=\"background:var(--gold);\"></div></div>' +\n" +
-  "                        '</div>' +\n" +
-  "                    '</div>' +\n" +
-  "                    '<div class=\"details-grid\">' +\n" +
-  "                        '<div>پورت: <span style=\"color:white; font-family:monospace;\">' + userPort + '</span></div>' +\n" +
-  "                        '<div>پروتکل: <span class=\"proto-badge ' + pClass + '\">' + u.protocol + '</span></div>' +\n" +
-  "                    '</div>' +\n" +
-  "                    '<div class=\"card-bottom-btns\">' +\n" +
-  "                        '<a href=\"' + statusUrl + '\" target=\"_blank\" class=\"sub-btn green\">🔗 صفحه وضعیت</a>' +\n" +
-  "                        '<a href=\"' + subUrl + '\" target=\"_blank\" class=\"sub-btn\">📄 ساب متنی</a>' +\n" +
-  "                        '<a href=\"' + yamlUrl + '\" target=\"_blank\" class=\"sub-btn purple\">⚡ ساب YAML</a>' +\n" +
-  "                    '</div>' +\n" +
-  "                '</div>';\n" +
-  "            });\n" +
-  "        }\n" +
-  "        function renderSavedIps() {\n" +
-  "            const container = document.getElementById('saved-ips-list');\n" +
-  "            container.innerHTML = '';\n" +
-  "            if(savedIpsCache.length === 0) {\n" +
-  "                container.innerHTML = '<div style=\"text-align:center; color:var(--text-muted); padding:15px;\">هیچ آی‌پی در مخزن ذخیره نشده است.</div>';\n" +
-  "                return;\n" +
-  "            }\n" +
-  "            savedIpsCache.forEach(item => {\n" +
-  "                container.innerHTML += '<div class=\"ip-item-row\">' +\n" +
-  "                    '<span>' + item.ip + '</span>' +\n" +
-  "                    '<button class=\"del-ip-btn\" onclick=\"deleteSavedIp(\\'' + item.id + '\\')\">حذف</button>' +\n" +
-  "                '</div>';\n" +
-  "            });\n" +
-  "        }\n" +
-  "        function copyText(txt) {\n" +
-  "            navigator.clipboard.writeText(txt);\n" +
-  "            alert('لینک ساب با موفقیت کپی شد!');\n" +
-  "        }\n" +
-  "        function filterUsers() {\n" +
-  "            const query = document.getElementById('search-input').value.toLowerCase();\n" +
-  "            renderUsers(allUsersCache.filter(u => u.username.toLowerCase().includes(query)));\n" +
-  "        }\n" +
-  "        function openModal() {\n" +
-  "            document.getElementById('modal-main-title').innerText = 'ایجاد اشتراک جدید';\n" +
-  "            document.getElementById('f-edit-id').value = '';\n" +
-  "            document.getElementById('f-username').disabled = false;\n" +
-  "            document.getElementById('user-form').reset();\n" +
-  "            document.getElementById('userModal').style.display = 'flex';\n" +
-  "        }\n" +
-  "        function openEditModal(id) {\n" +
-  "            const u = allUsersCache.find(x => x.id === id);\n" +
-  "            if(!u) return;\n" +
-  "            document.getElementById('modal-main-title').innerText = 'ویرایش اشتراک: ' + u.username;\n" +
-  "            document.getElementById('f-edit-id').value = u.id;\n" +
-  "            document.getElementById('f-username').value = u.username;\n" +
-  "            document.getElementById('f-username').disabled = true;\n" +
-  "            document.getElementById('f-protocol').value = u.protocol || 'VLESS';\n" +
-  "            document.getElementById('f-port').value = u.port || '443';\n" +
-  "            document.getElementById('f-traffic').value = parseInt(u.traffic) || 100;\n" +
-  "            document.getElementById('f-expire').value = parseInt(u.expire) || 30;\n" +
-  "            document.getElementById('f-status').value = u.status || 'active';\n" +
-  "            document.getElementById('f-adblock').checked = u.adblock === 'on';\n" +
-  "            document.getElementById('f-adult').checked = u.adult_block === 'on';\n" +
-  "            document.getElementById('userModal').style.display = 'flex';\n" +
-  "        }\n" +
-  "        function closeModal() { document.getElementById('userModal').style.display = 'none'; }\n" +
-  "        function openCleanIpModal() {\n" +
-  "            document.getElementById('cleanIpModal').style.display = 'flex';\n" +
-  "            loadUsers();\n" +
-  "        }\n" +
-  "        function closeCleanIpModal() {\n" +
-  "            document.getElementById('cleanIpModal').style.display = 'none';\n" +
-  "        }\n" +
-  "        async function saveCleanIpDirect() {\n" +
-  "            const ip = document.getElementById('ip-input-field').value.trim();\n" +
-  "            if(!ip) { alert('لطفاً یک آی‌پی معتبر وارد کنید.'); return; }\n" +
-  "            const res = await fetch('/api/set-clean-ip', {\n" +
-  "                method: 'POST',\n" +
-  "                headers: { 'Content-Type': 'application/json' },\n" +
-  "                body: JSON.stringify({ ip: ip })\n" +
-  "            });\n" +
-  "            const data = await res.json();\n" +
-  "            if(data.success) {\n" +
-  "                document.getElementById('ip-input-field').value = '';\n" +
-  "                alert('آی‌پی با موفقیت ثبت و اعمال شد!');\n" +
-  "                loadUsers();\n" +
-  "            } else { alert('خطا در ثبت آی‌پی'); }\n" +
-  "        }\n" +
-  "        async function deleteSavedIp(ipKey) {\n" +
-  "            if(!confirm('آیا از حذف این آی‌پی از مخزن مطمئن هستید؟')) return;\n" +
-  "            const res = await fetch('/api/delete-ip/' + ipKey, { method: 'DELETE' });\n" +
-  "            const data = await res.json();\n" +
-  "            if(data.success) { loadUsers(); }\n" +
-  "        }\n" +
-  "        document.getElementById('user-form').addEventListener('submit', async (e) => {\n" +
-  "            e.preventDefault();\n" +
-  "            const editId = document.getElementById('f-edit-id').value;\n" +
-  "            const payload = {\n" +
-  "                id: editId ? editId : undefined,\n" +
-  "                username: document.getElementById('f-username').value,\n" +
-  "                protocol: document.getElementById('f-protocol').value,\n" +
-  "                port: document.getElementById('f-port').value,\n" +
-  "                traffic: document.getElementById('f-traffic').value,\n" +
-  "                expire: document.getElementById('f-expire').value,\n" +
-  "                status: document.getElementById('f-status').value,\n" +
-  "                adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',\n" +
-  "                adult_block: document.getElementById('f-adult').checked ? 'on' : 'off'\n" +
-  "            };\n" +
-  "            const res = await fetch('/api/users', {\n" +
-  "                method: 'POST',\n" +
-  "                headers: { 'Content-Type': 'application/json' },\n" +
-  "                body: JSON.stringify(payload)\n" +
-  "            });\n" +
-  "            const data = await res.json();\n" +
-  "            if(data.success) {\n" +
-  "                closeModal();\n" +
-  "                loadUsers();\n" +
-  "            } else { alert(data.error || 'خطا در ذخیره اطلاعات'); }\n" +
-  "        });\n" +
-  "        async function deleteUser(id) {\n" +
-  "            if(!confirm('آیا از حذف این کاربر مطمئن هستید؟')) return;\n" +
-  "            const res = await fetch('/api/users/' + id, { method: 'DELETE' });\n" +
-  "            const data = await res.json();\n" +
-  "            if(data.success) loadUsers();\n" +
-  "        }\n" +
-  "        loadUsers();\n" +
-  "    </script>\n" +
-  "</body>\n" +
-  "</html>";
+function html(content) {
+  return new Response(content, {
+    headers: {
+      "Content-Type": "text/html; charset=UTF-8",
+      "Cache-Control": "no-store"
+    }
+  });
 }
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function yamlEscape(value) {
+  return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function isValidIPv4(ip) {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+
+  return parts.every(part => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    if (part.length > 1 && part.startsWith("0")) return false;
+    return Number(part) >= 0 && Number(part) <= 255;
+  });
+}
+
+function isValidIPv6(ip) {
+  if (!ip.includes(":") || !/^[0-9a-fA-F:]+$/.test(ip)) {
+    return false;
+  }
+
+  if (ip.includes(":::")) return false;
+
+  const halves = ip.split("::");
+  if (halves.length > 2) return false;
+
+  const count = s => s ? s.split(":").length : 0;
+
+  if (halves.length === 1) {
+    return count(ip) === 8;
+  }
+
+  return count(halves[0]) + count(halves[1]) < 8;
+}
+
+function isValidIp(ip) {
+  return isValidIPv4(ip) || isValidIPv6(ip);
+}
+
+function makeIpKey(ip) {
+  return "ip_" + ip.replace(/[^a-zA-Z0-9]/g, "_");
+}
+
+
+// =========================================================
+// DASHBOARD UI
+// =========================================================
+
+function dashboard(host) {
+  const safeHost = JSON.stringify(host);
+
+  return `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KINGAMIR PANEL</title>
+<style>
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;padding:15px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+main{max-width:1100px;margin:auto}
+header,.card,.toolbar,.box{background:var(--card);border:1px solid var(--border);border-radius:15px;padding:17px;margin-bottom:15px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:21px;color:var(--gold);margin:0}
+h2{font-size:16px}
+.muted{color:var(--muted);font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:12px}
+.stat b{display:block;font-size:22px;color:var(--gold);margin-top:6px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap}
+input,select,textarea{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:9px;margin:5px 0 12px}
+textarea{min-height:110px}
+button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;margin:3px}
+.gold{background:var(--gold);color:#111}
+.outline{background:#111827;color:white;border:1px solid var(--border)}
+.danger{background:#451a1a;color:#fecaca}
+.user{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:15px;margin:12px 0;overflow-wrap:anywhere}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.tag{font-size:12px;color:var(--green)}
+.ip{padding:10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--gold);border-radius:15px}
+dialog::backdrop{background:#000b}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>KINGAMIR PANEL</h1>
+  <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>
+</header>
+
+<section class="stats">
+  <div class="stat">تعداد کاربران<b id="total">0</b></div>
+  <div class="stat">کاربران فعال<b id="active">0</b></div>
+  <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>
+</section>
+
+<div class="toolbar">
+  <button class="gold" onclick="openUser()">+ ایجاد کاربر</button>
+  <button class="outline" onclick="openIps()">مدیریت IPها</button>
+  <button class="outline" onclick="loadAll()">بروزرسانی</button>
+</div>
+
+<section id="users"></section>
+
+<dialog id="user-dialog">
+  <h2 id="user-title">ایجاد کاربر</h2>
+  <form id="user-form">
+    <input id="edit-id" type="hidden">
+    <label>نام کاربری</label>
+    <input id="username" required placeholder="مثلاً ali">
+    <label>پروتکل</label>
+    <select id="protocol">
+      <option>VLESS</option><option>Trojan</option><option>Shadowsocks</option>
+    </select>
+    <label>پورت</label>
+    <select id="port">
+      <option>443</option><option>2053</option><option>2083</option>
+      <option>2087</option><option>8443</option>
+    </select>
+    <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>
+    <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>
+    <label>وضعیت</label>
+    <select id="status"><option value="active">فعال</option><option value="disabled">غیرفعال</option></select>
+    <div class="row">
+      <button class="gold" type="submit">ذخیره</button>
+      <button class="outline" type="button" onclick="document.getElementById('user-dialog').close()">بستن</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ip-dialog">
+  <h2>مدیریت مخزن IP</h2>
+  <label>ثبت و فعال‌کردن یک IP</label>
+  <input id="ip-input" placeholder="مثال: 104.16.132.229">
+  <button class="gold" onclick="saveIp()">ثبت و فعال‌کردن</button>
+
+  <label>واردکردن چند IP (هر خط یک IP)</label>
+  <textarea id="bulk-ips" placeholder="104.16.132.229&#10;104.17.1.1"></textarea>
+  <button class="gold" onclick="importIps()">واردکردن IPها</button>
+  <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>
+
+  <p class="muted">محدوده‌های رسمی، IPهای تست‌شده نیستند. نتیجه این پنل تضمین اتصال VLESS نیست.</p>
+  <div id="range-output"></div>
+  <h3>IPهای ذخیره‌شده</h3>
+  <div id="ip-list">در حال بارگذاری...</div>
+  <button class="outline" onclick="document.getElementById('ip-dialog').close()">بستن</button>
+</dialog>
+</main>
+
+<script>
+const currentHost = ${safeHost};
+let usersCache = [];
+let ipsCache = [];
+
+async function api(path, options={}) {
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "خطای درخواست");
+  return data;
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  })[c]);
+}
+
+async function loadAll() {
+  try {
+    const data = await api("/api/users");
+    usersCache = data.users || [];
+    ipsCache = data.savedIps || [];
+    document.getElementById("active-ip").textContent =
+      "IP فعال: " + data.activeCleanIp;
+    document.getElementById("total").textContent = data.metrics.total;
+    document.getElementById("active").textContent = data.metrics.active;
+    document.getElementById("ip-total").textContent = ipsCache.length;
+    renderUsers();
+    renderIps();
+  } catch(e) {
+    alert("خطا در دریافت اطلاعات: " + e.message);
+  }
+}
+
+function renderUsers() {
+  const root = document.getElementById("users");
+
+  if (!usersCache.length) {
+    root.innerHTML = '<div class="card">هنوز کاربری ثبت نشده است.</div>';
+    return;
+  }
+
+  root.innerHTML = usersCache.map(u => {
+    const sub = "/sub/" + encodeURIComponent(u.username);
+    const yaml = "/yaml/" + encodeURIComponent(u.username);
+    const status = u.status === "disabled" ? "غیرفعال" : "فعال";
+
+    return '<article class="user">' +
+      '<div class="row"><h2>' + esc(u.username) + '</h2><span>' + status + '</span></div>' +
+      '<p class="muted">پروتکل: ' + esc(u.protocol) +
+      ' | پورت: ' + esc(u.port) +
+      ' | حجم: ' + esc(u.traffic) +
+      ' | اعتبار: ' + esc(u.expire) + '</p>' +
+      '<a class="button gold" href="' + sub + '" target="_blank">ساب متنی</a>' +
+      '<a class="button outline" href="' + yaml + '" target="_blank">YAML</a>' +
+      '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">ویرایش</button>' +
+      '<button class="danger" onclick="deleteUser(\\'' + esc(u.id) + '\\')">حذف</button>' +
+      '</article>';
+  }).join("");
+}
+
+function openUser() {
+  document.getElementById("user-form").reset();
+  document.getElementById("edit-id").value = "";
+  document.getElementById("username").disabled = false;
+  document.getElementById("user-title").textContent = "ایجاد کاربر";
+  document.getElementById("user-dialog").showModal();
+}
+
+function editUser(id) {
+  const u = usersCache.find(x => x.id === id);
+  if (!u) return;
+
+  document.getElementById("edit-id").value = u.id;
+  document.getElementById("username").value = u.username;
+  document.getElementById("username").disabled = true;
+  document.getElementById("protocol").value = u.protocol || "VLESS";
+  document.getElementById("port").value = u.port || "443";
+  document.getElementById("traffic").value = parseInt(u.traffic) || 100;
+  document.getElementById("expire").value = parseInt(u.expire) || 30;
+  document.getElementById("status").value = u.status || "active";
+  document.getElementById("user-title").textContent = "ویرایش کاربر";
+  document.getElementById("user-dialog").showModal();
+}
+
+document.getElementById("user-form").addEventListener("submit", async e => {
+  e.preventDefault();
+
+  const id = document.getElementById("edit-id").value;
+  const payload = {
+    username: document.getElementById("username").value,
+    protocol: document.getElementById("protocol").value,
+    port: document.getElementById("port").value,
+    traffic: document.getElementById("traffic").value,
+    expire: document.getElementById("expire").value,
+    status: document.getElementById("status").value
+  };
+
+  if (id) payload.id = id;
+
+  try {
+    const result = await api("/api/users", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    alert(result.message || "ذخیره شد");
+    document.getElementById("user-dialog").close();
+    loadAll();
+  } catch(e) {
+    alert(e.message);
+  }
+});
+
+async function deleteUser(id) {
+  if (!confirm("کاربر حذف شود؟")) return;
+
+  try {
+    await api("/api/users/" + encodeURIComponent(id), {method:"DELETE"});
+    loadAll();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+function openIps() {
+  document.getElementById("ip-dialog").showModal();
+  renderIps();
+}
+
+function renderIps() {
+  const root = document.getElementById("ip-list");
+
+  if (!ipsCache.length) {
+    root.innerHTML = '<p class="muted">مخزن خالی است.</p>';
+    return;
+  }
+
+  root.innerHTML = ipsCache.map(item =>
+    '<div class="ip row"><code>' + esc(item.ip) + '</code>' +
+    '<div><button class="gold" onclick="selectIp(\\'' + esc(item.ip) + '\\')">انتخاب</button>' +
+    '<button class="danger" onclick="deleteIp(\\'' + esc(item.id) + '\\')">حذف</button></div></div>'
+  ).join("");
+}
+
+async function saveIp() {
+  const ip = document.getElementById("ip-input").value.trim();
+  if (!ip) return alert("IP را وارد کن.");
+
+  try {
+    await api("/api/set-clean-ip", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ip})
+    });
+    document.getElementById("ip-input").value = "";
+    await loadAll();
+    alert("IP ذخیره و فعال شد.");
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function importIps() {
+  const ips = document.getElementById("bulk-ips").value;
+
+  try {
+    const data = await api("/api/import-ips", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ips})
+    });
+
+    await loadAll();
+    alert("ذخیره‌شده: " + data.saved +
+      "\\nنامعتبر: " + (data.invalid || []).length);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function selectIp(ip) {
+  try {
+    await api("/api/select-clean-ip", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ip})
+    });
+    await loadAll();
+    alert("IP فعال تغییر کرد.");
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function deleteIp(id) {
+  if (!confirm("این IP حذف شود؟")) return;
+
+  try {
+    await api("/api/delete-ip/" + encodeURIComponent(id), {
+      method:"DELETE"
+    });
+    await loadAll();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function getRanges() {
+  const root = document.getElementById("range-output");
+  root.textContent = "در حال دریافت...";
+
+  try {
+    const data = await api("/api/cloudflare-ranges");
+    const ips = [...data.ipv4, ...data.ipv6];
+
+    document.getElementById("bulk-ips").value = ips.join("\\n");
+    root.textContent = "محدوده‌های رسمی دریافت شد: " +
+      data.ipv4.length + " محدوده IPv4 و " +
+      data.ipv6.length + " محدوده IPv6. برای ذخیره، دکمه واردکردن را بزن.";
+  } catch(e) {
+    root.textContent = e.message;
+  }
+}
+
+loadAll();
+</script>
+</body>
+</html>`;
+            }
