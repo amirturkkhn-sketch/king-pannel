@@ -22,26 +22,24 @@ export default {
       }
     } catch(e) {}
 
+    // خروجی چندگانه و استاندارد ساب‌سکریپشن برای جلوگیری از خطای کلاینت
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
       if (!user) return new Response("User not found", { status: 404 });
 
-      let link = "";
-      const encodedName = encodeURIComponent(user.username);
       const uUuid = user.uuid;
+      const encodedName = encodeURIComponent(user.username);
 
-      if (user.protocol === "VLESS") {
-        link = "vless://" + uUuid + "@" + activeCleanIp + ":443?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
-      } else if (user.protocol === "Trojan") {
-        link = "trojan://" + uUuid + "@" + activeCleanIp + ":443?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
-      } else {
-        const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
-        link = "ss://" + auth + "@" + activeCleanIp + ":443#" + encodedName;
-      }
+      const vlessLink = "vless://" + uUuid + "@" + activeCleanIp + ":443?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
+      const trojanLink = "trojan://" + uUuid + "@" + activeCleanIp + ":443?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-Trojan";
+      const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
+      const ssLink = "ss://" + auth + "@" + activeCleanIp + ":443#" + encodedName + "-SS";
+
+      const allConfigs = vlessLink + "\n" + trojanLink + "\n" + ssLink;
 
       const utf8Encoder = new TextEncoder();
-      const encodedBase64 = btoa(String.fromCharCode(...utf8Encoder.encode(link)));
+      const encodedBase64 = btoa(String.fromCharCode(...utf8Encoder.encode(allConfigs)));
 
       return new Response(encodedBase64, {
         headers: { "Content-Type": "text/plain;charset=UTF-8", "Cache-Control": "no-store" }
@@ -54,7 +52,7 @@ export default {
       if (!user) return new Response("User not found", { status: 404 });
 
       const uUuid = user.uuid;
-      const yamlContent = "proxies:\n  - name: \"" + user.username + "-" + user.protocol + "\"\n    type: " + user.protocol.toLowerCase() + "\n    server: " + activeCleanIp + "\n    port: 443\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      const yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: 443\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
@@ -543,4 +541,3 @@ function getMasterDashboardHtml(host) {
     </script>
 </body>
 </html>`;
-}
