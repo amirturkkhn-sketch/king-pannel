@@ -9,6 +9,11 @@ export default {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
+    // ایجاد جدول تنظیمات اگر وجود نداشته باشد
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    } catch(e) {}
+
     // گرفتن آی‌پی تمیز فعال از دیتابیس (اگر ست شده باشد)
     let activeCleanIp = host;
     try {
@@ -18,7 +23,7 @@ export default {
       }
     } catch(e) {}
 
-    // ساب متنی Base64 (اصلاح‌شده و کاملاً استاندارد برای کلاینت‌ها)
+    // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -37,7 +42,6 @@ export default {
         link = `ss://${auth}@${activeCleanIp}:443#${encodedName}`;
       }
 
-      // استفاده از انکودینگ استاندارد UTF-8 برای جلوگیری از خطای کانفینگ
       const utf8Encoder = new TextEncoder();
       const encodedBase64 = btoa(String.fromCharCode(...utf8Encoder.encode(link)));
 
@@ -82,13 +86,23 @@ export default {
       });
     }
 
-    // API لیست کاربران و آی‌پی فعال
+    // API لیست کاربران، آی‌پی فعال و لیست آی‌پی‌های ذخیره شده
     if (path === "/api/users" && method === "GET") {
       const { results } = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
+      
+      let ipsList = [];
+      try {
+        const ipRows = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
+        if(ipRows.results) {
+          ipsList = ipRows.results.map(r => ({ id: r.key, ip: r.value }));
+        }
+      } catch(e) {}
+
       return jsonResponse({
         success: true,
         users: results || [],
         activeCleanIp: activeCleanIp,
+        savedIps: ipsList,
         metrics: {
           total: (results || []).length,
           active: (results || []).filter(u => u.status === 'active').length,
@@ -96,16 +110,27 @@ export default {
       });
     }
 
-    // API ذخیره و تنظیم آی‌پی تمیز برتر
+    // API ذخیره آی‌پی تمیز
     if (path === "/api/set-clean-ip" && method === "POST") {
       const body = await request.json();
       const ip = body.ip ? body.ip.trim() : "";
       if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
 
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+      // ذخیره به عنوان آی‌پی فعال اصلی
       await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)`).bind(ip).run();
+      
+      // ذخیره در لیست آرشیو آی‌پی‌ها با کلیک منحصر به فرد
+      const ipKey = 'ip_' + ip.replace(/[\.\:]/g, '_');
+      await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).bind(ipKey, ip).run();
 
-      return jsonResponse({ success: true, message: "آی‌پی تمیز با موفقیت روی کل کانفینگ‌ها ست شد." });
+      return jsonResponse({ success: true, message: "آی‌پی تمیز با موفقیت ست شد." });
+    }
+
+    // API حذف آی‌پی از مخزن
+    if (path.startsWith("/api/delete-ip/") && method === "DELETE") {
+      const ipKey = path.split("/")[3];
+      await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(ipKey).run();
+      return jsonResponse({ success: true });
     }
 
     // API ایجاد کاربر جدید
@@ -142,7 +167,6 @@ export default {
       return jsonResponse({ success: true });
     }
 
-    // نمایش پنل مدیریت اختصاصی KingAmir
     return new Response(getMasterDashboardHtml(host), {
       headers: { "Content-Type": "text/html;charset=UTF-8" }
     });
@@ -240,6 +264,11 @@ function getMasterDashboardHtml(host) {
         input:focus, select:focus, textarea:focus { border-color: var(--gold); }
         .toggle-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-base); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 12px; }
         .modal-footer { display: flex; gap: 12px; margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px; }
+        .ip-list-container { margin-top: 15px; max-height: 160px; overflow-y: auto; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; }
+        .ip-item-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border-color); font-size: 12px; font-family: monospace; }
+        .ip-item-row:last-child { border-bottom: none; }
+        .del-ip-btn { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-family: sans-serif; font-weight: bold; }
+        .del-ip-btn:hover { background: var(--danger); color: white; }
     </style>
 </head>
 <body>
@@ -267,7 +296,7 @@ function getMasterDashboardHtml(host) {
         <div class="toolbar">
             <input type="text" class="search-box" id="search-input" placeholder="🔍 جستجوی نام کاربری..." onkeyup="filterUsers()">
             <div style="display: flex; gap: 8px;">
-                <button class="btn-outline" onclick="openCleanIpModal()" style="border-color: var(--gold); color: var(--gold);">⚡ ثبت آی‌پی تمیز</button>
+                <button class="btn-outline" onclick="openCleanIpModal()" style="border-color: var(--gold); color: var(--gold);">⚡ مدیریت مخزن آی‌پی</button>
                 <button class="btn-gold" onclick="openModal()">+ ایجاد کاربر جدید</button>
             </div>
         </div>
@@ -327,20 +356,27 @@ function getMasterDashboardHtml(host) {
             </div>
         </div>
 
-        <!-- مدال ثبت آی‌پی تمیز -->
+        <!-- مدال مدیریت و مخزن آی‌پی تمیز -->
         <div class="modal" id="cleanIpModal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title">⚡ ثبت مستقیم آی‌پی تمیز</div>
+                    <div class="modal-title">⚡ ثبت و مدیریت مخزن آی‌پی تمیز</div>
                     <button class="close-btn" onclick="closeCleanIpModal()">&times;</button>
                 </div>
                 <div>
-                    <label>یک آی‌پی تمیز و سالم را وارد کنید:</label>
-                    <input type="text" id="ip-input-field" placeholder="مثال: 104.16.132.229" style="margin-top: 8px; font-family: monospace;">
+                    <label>وارد کردن آی‌پی تمیز جدید:</label>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <input type="text" id="ip-input-field" placeholder="مثال: 104.16.132.229" style="font-family: monospace; flex: 1;">
+                        <button type="button" class="btn-gold" onclick="saveCleanIpDirect()">اعمال و ذخیره</button>
+                    </div>
+
+                    <div class="form-section-title" style="margin-top: 20px;">مخزن آی‌پی‌های ذخیره‌شده (قابل حذف)</div>
+                    <div class="ip-list-container" id="saved-ips-list">
+                        <div style="text-align:center; color:var(--text-muted); padding:15px;">در حال بارگذاری مخزن...</div>
+                    </div>
                     
                     <div class="modal-footer">
-                        <button type="button" class="btn-outline" onclick="closeCleanIpModal()" style="flex: 1;">انصراف</button>
-                        <button type="button" class="btn-gold" onclick="saveCleanIpDirect()" style="flex: 2; justify-content: center;">ذخیره و اعمال روی همه کانفینگ‌ها</button>
+                        <button type="button" class="btn-outline" onclick="closeCleanIpModal()" style="width: 100%;">بستن پنجره</button>
                     </div>
                 </div>
             </div>
@@ -350,6 +386,7 @@ function getMasterDashboardHtml(host) {
 
     <script>
         let allUsersCache = [];
+        let savedIpsCache = [];
         const currentHost = "${host}";
 
         async function loadUsers() {
@@ -358,9 +395,11 @@ function getMasterDashboardHtml(host) {
                 const data = await res.json();
                 if(data.success) {
                     allUsersCache = data.users;
+                    savedIpsCache = data.savedIps || [];
                     document.getElementById('stat-total').innerText = data.metrics.total;
                     document.getElementById('active-ip-display').innerText = 'آی‌پی فعال: ' + data.activeCleanIp;
                     renderUsers(allUsersCache);
+                    renderSavedIps();
                 }
             } catch(e) { console.error(e); }
         }
@@ -422,6 +461,25 @@ function getMasterDashboardHtml(host) {
             });
         }
 
+        function renderSavedIps() {
+            const container = document.getElementById('saved-ips-list');
+            container.innerHTML = '';
+
+            if(savedIpsCache.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:15px;">هیچ آی‌پی در مخزن ذخیره نشده است.</div>';
+                return;
+            }
+
+            savedIpsCache.forEach(item => {
+                container.innerHTML += \`
+                    <div class="ip-item-row">
+                        <span>\${item.ip}</span>
+                        <button class="del-ip-btn" onclick="deleteSavedIp('\${item.id}')">حذف</button>
+                    </div>
+                \`;
+            });
+        }
+
         function copyText(txt) {
             navigator.clipboard.writeText(txt);
             alert('لینک ساب با موفقیت کپی شد!');
@@ -443,6 +501,7 @@ function getMasterDashboardHtml(host) {
 
         function openCleanIpModal() {
             document.getElementById('cleanIpModal').style.display = 'flex';
+            loadUsers();
         }
 
         function closeCleanIpModal() {
@@ -463,11 +522,20 @@ function getMasterDashboardHtml(host) {
             });
             const data = await res.json();
             if(data.success) {
-                alert('آی‌پی تمیز با موفقیت ثبت و روی تمام کانفینگ‌ها اعمال شد!');
-                closeCleanIpModal();
+                document.getElementById('ip-input-field').value = '';
+                alert('آی‌پی تمیز با موفقیت ثبت و روی کانفینگ‌ها اعمال شد!');
                 loadUsers();
             } else {
                 alert('خطا در ثبت آی‌پی');
+            }
+        }
+
+        async function deleteSavedIp(ipKey) {
+            if(!confirm('آیا از حذف این آی‌پی از مخزن مطمئن هستید؟')) return;
+            const res = await fetch('/api/delete-ip/' + ipKey, { method: 'DELETE' });
+            const data = await res.json();
+            if(data.success) {
+                loadUsers();
             }
         }
 
