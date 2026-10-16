@@ -98,7 +98,6 @@ export default {
       const ip = body.ip ? body.ip.trim() : "";
       if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
 
-      // ایجاد جدول تنظیمات اگر وجود نداشته باشد
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
       await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)`).bind(ip).run();
 
@@ -264,7 +263,7 @@ function getMasterDashboardHtml(host) {
         <div class="toolbar">
             <input type="text" class="search-box" id="search-input" placeholder="🔍 جستجوی نام کاربری..." onkeyup="filterUsers()">
             <div style="display: flex; gap: 8px;">
-                <button class="btn-outline" onclick="openCleanIpModal()" style="border-color: var(--gold); color: var(--gold);">⚡ مخزن آی‌پی تمیز</button>
+                <button class="btn-outline" onclick="openCleanIpModal()" style="border-color: var(--gold); color: var(--gold);">⚡ ثبت آی‌پی تمیز</button>
                 <button class="btn-gold" onclick="openModal()">+ ایجاد کاربر جدید</button>
             </div>
         </div>
@@ -324,22 +323,20 @@ function getMasterDashboardHtml(host) {
             </div>
         </div>
 
-        <!-- مدال مخزن آی‌پی تمیز -->
+        <!-- مدال ثبت آی‌پی تمیز -->
         <div class="modal" id="cleanIpModal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title">⚡ مخزن و تست آی‌پی‌های تمیز</div>
+                    <div class="modal-title">⚡ ثبت مستقیم آی‌پی تمیز</div>
                     <button class="close-btn" onclick="closeCleanIpModal()">&times;</button>
                 </div>
                 <div>
-                    <label>لیست آی‌پی‌های تمیز (هر آی‌پی در یک خط یا با کاما جدا کنید):</label>
-                    <textarea id="ip-textarea" rows="6" placeholder="104.16.x.x\n172.67.x.x\n162.159.x.x" style="margin-top: 8px; font-family: monospace;"></textarea>
+                    <label>یک آی‌پی تمیز و سالم را وارد کنید:</label>
+                    <input type="text" id="ip-input-field" placeholder="مثال: 104.16.132.229" style="margin-top: 8px; font-family: monospace;">
                     
-                    <div id="test-results" style="margin-top: 15px; font-size: 12px; color: var(--text-muted); max-height: 150px; overflow-y: auto;"></div>
-
                     <div class="modal-footer">
                         <button type="button" class="btn-outline" onclick="closeCleanIpModal()" style="flex: 1;">انصراف</button>
-                        <button type="button" class="btn-gold" onclick="testAndSaveIps()" style="flex: 2; justify-content: center;">تست پینگ و اعمال سریع‌ترین</button>
+                        <button type="button" class="btn-gold" onclick="saveCleanIpDirect()" style="flex: 2; justify-content: center;">ذخیره و اعمال روی همه کانفینگ‌ها</button>
                     </div>
                 </div>
             </div>
@@ -442,67 +439,31 @@ function getMasterDashboardHtml(host) {
 
         function openCleanIpModal() {
             document.getElementById('cleanIpModal').style.display = 'flex';
-            document.getElementById('test-results').innerHTML = '';
         }
 
         function closeCleanIpModal() {
             document.getElementById('cleanIpModal').style.display = 'none';
         }
 
-        // تست سرعت پینگ آی‌پی‌ها و انتخاب سریع‌ترین به صورت خودکار
-        async function testAndSaveIps() {
-            const rawText = document.getElementById('ip-textarea').value;
-            const ips = rawText.split(/[\\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
-            
-            if(ips.length === 0) {
-                alert('لطفاً حداقل یک آی‌پی وارد کنید.');
+        async function saveCleanIpDirect() {
+            const ip = document.getElementById('ip-input-field').value.trim();
+            if(!ip) {
+                alert('لطفاً یک آی‌پی معتبر وارد کنید.');
                 return;
             }
 
-            const resultsDiv = document.getElementById('test-results');
-            resultsDiv.innerHTML = '⏳ در حال تست سرعت و پینگ آی‌پی‌ها...';
-
-            let bestIp = null;
-            let minPing = 999999;
-            let summaryHtml = '';
-
-            for(let ip of ips) {
-                const startTime = performance.now();
-                try {
-                    // تست پینگ از طریق درخواست سبک به آی‌پی
-                    await fetch('https://' + ip + '/cdn-cgi/trace', { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
-                    const ping = Math.round(performance.now() - startTime);
-                    
-                    summaryHtml += \`<div style="color:var(--success);">✅ آی‌پی \${ip} - پینگ: \${ping}ms</div>\`;
-                    if(ping < minPing) {
-                        minPing = ping;
-                        bestIp = ip;
-                    }
-                } catch(e) {
-                    summaryHtml += \`<div style="color:var(--danger);">❌ آی‌پی \${ip} - نامعتبر یا خارج از دسترس</div>\`;
-                }
-                resultsDiv.innerHTML = summaryHtml;
-            }
-
-            if(bestIp) {
-                resultsDiv.innerHTML += \`<div style="color:var(--gold); font-weight:bold; margin-top:10px;">🏆 سریع‌ترین آی‌پی شناسایی شد: \{bestIp} (پینگ: \${minPing}ms). در حال اعمال روی کانفینگ‌ها...</div>\`;
-                
-                // ارسال سریع‌ترین آی‌پی به سرور برای ذخیره در دیتابیس
-                const res = await fetch('/api/set-clean-ip', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ip: bestIp })
-                });
-                const data = await res.json();
-                if(data.success) {
-                    setTimeout(() => {
-                        alert('آی‌پی تمیز با موفقیت روی تمام لینک‌های ساب‌سکریپشن اعمال شد!');
-                        closeCleanIpModal();
-                        loadUsers();
-                    }, 1000);
-                }
+            const res = await fetch('/api/set-clean-ip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip })
+            });
+            const data = await res.json();
+            if(data.success) {
+                alert('آی‌پی تمیز با موفقیت ثبت و روی تمام کانفینگ‌ها اعمال شد!');
+                closeCleanIpModal();
+                loadUsers();
             } else {
-                resultsDiv.innerHTML += \`<div style="color:var(--danger); font-weight:bold; margin-top:10px;">⚠️ هیچ‌کدام از آی‌پی‌ها پاسخ ندادند. لطفاً لیست دیگری امتحان کنید.</div>\`;
+                alert('خطا در ثبت آی‌پی');
             }
         }
 
