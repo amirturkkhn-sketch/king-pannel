@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const host = url.host; // استفاده خودکار از دامنه ورکر شما (مثلاً kingamir.quzalkexuyzs.workers.dev)
+    const host = url.host;
 
     if (!env.DB) {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
@@ -21,8 +21,11 @@ export default {
 
       if (user.protocol === "VLESS") {
         link = `vless://${uUuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
-      } else {
+      } else if (user.protocol === "Trojan") {
         link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+      } else {
+        const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
+        link = `ss://${auth}@${host}:443#${encodedName}`;
       }
 
       return new Response(btoa(unescape(encodeURIComponent(link))), {
@@ -89,6 +92,8 @@ export default {
       const protocol = body.protocol || "VLESS";
       const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
       const expire = body.expire ? body.expire + " روز" : "30 روز";
+      const adblock = body.adblock || "on";
+      const adult_block = body.adult_block || "on";
 
       const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
       if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
@@ -98,8 +103,8 @@ export default {
 
       await env.DB.prepare(
         `INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) 
-         VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', 'on', 'on', 'active')`
-      ).bind(id, username, uuid, protocol, traffic, expire).run();
+         VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', ?, ?, 'active')`
+      ).bind(id, username, uuid, protocol, traffic, expire, adblock, adult_block).run();
 
       return jsonResponse({ success: true, message: "کاربر با موفقیت ثبت شد." });
     }
@@ -153,6 +158,7 @@ function getMasterDashboardHtml(host) {
             --danger: #ef4444;
             --vless: #3b82f6;
             --trojan: #8b5cf6;
+            --ss: #f97316;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
         body { background-color: var(--bg-base); color: var(--text-main); padding: 14px; min-height: 100vh; }
@@ -189,6 +195,7 @@ function getMasterDashboardHtml(host) {
         .proto-badge { padding: 4px 10px; border-radius: 7px; font-weight: bold; font-size: 11px; }
         .p-vless { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
         .p-trojan { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .p-ss { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
         .card-bottom-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .sub-btn { background: var(--bg-base); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 10px; font-size: 12px; font-weight: bold; text-align: center; cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .sub-btn.green { background: rgba(16, 185, 129, 0.1); color: var(--success); }
@@ -205,6 +212,7 @@ function getMasterDashboardHtml(host) {
         label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; }
         input, select { width: 100%; padding: 12px 16px; background: var(--bg-base); border: 1px solid var(--border-color); color: white; border-radius: 12px; outline: none; font-size: 13px; }
         input:focus, select:focus { border-color: var(--gold); }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-base); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 12px; }
         .modal-footer { display: flex; gap: 12px; margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px; }
     </style>
 </head>
@@ -249,6 +257,7 @@ function getMasterDashboardHtml(host) {
                         <select id="f-protocol">
                             <option value="VLESS">VLESS</option>
                             <option value="Trojan">Trojan</option>
+                            <option value="Shadowsocks">Shadowsocks</option>
                         </select>
                     </div>
 
@@ -268,6 +277,16 @@ function getMasterDashboardHtml(host) {
                             <label>مدت زمان (روز)</label>
                             <input type="number" id="f-expire" value="30" required>
                         </div>
+                    </div>
+
+                    <div class="form-section-title">تنظیمات امنیتی و مسدودسازی</div>
+                    <div class="toggle-row">
+                        <span style="font-size: 12px; font-weight: 700;">مسدودسازی تبلیغات (AdBlock)</span>
+                        <input type="checkbox" id="f-adblock" checked style="width: 18px; height: 18px; accent-color: var(--gold);">
+                    </div>
+                    <div class="toggle-row">
+                        <span style="font-size: 12px; font-weight: 700;">مسدودسازی سایت‌های +18</span>
+                        <input type="checkbox" id="f-adult" checked style="width: 18px; height: 18px; accent-color: var(--gold);">
                     </div>
 
                     <div class="modal-footer">
@@ -305,7 +324,10 @@ function getMasterDashboardHtml(host) {
             }
 
             list.forEach(u => {
-                let pClass = u.protocol === 'Trojan' ? 'p-trojan' : 'p-vless';
+                let pClass = 'p-vless';
+                if(u.protocol === 'Trojan') pClass = 'p-trojan';
+                if(u.protocol === 'Shadowsocks') pClass = 'p-ss';
+
                 const subUrl = \`https://\${currentHost}/sub/\${u.username}\`;
                 const yamlUrl = \`https://\${currentHost}/yaml/\${u.username}\`;
                 const statusUrl = \`https://\${currentHost}/status/\${u.username}\`;
@@ -374,7 +396,9 @@ function getMasterDashboardHtml(host) {
                 username: document.getElementById('f-username').value,
                 protocol: document.getElementById('f-protocol').value,
                 traffic: document.getElementById('f-traffic').value,
-                expire: document.getElementById('f-expire').value
+                expire: document.getElementById('f-expire').value,
+                adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',
+                adult_block: document.getElementById('f-adult').checked ? 'on' : 'off'
             };
 
             const res = await fetch('/api/users', {
