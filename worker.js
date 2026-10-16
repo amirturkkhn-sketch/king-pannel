@@ -9,7 +9,16 @@ export default {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
-    // ساب متنی Base64
+    // گرفتن آی‌پی تمیز فعال از دیتابیس (اگر ست شده باشد)
+    let activeCleanIp = host;
+    try {
+      const savedIp = await env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first();
+      if (savedIp && savedIp.value) {
+        activeCleanIp = savedIp.value;
+      }
+    } catch(e) {}
+
+    // ساب متنی Base64 (با استفاده از آی‌پی تمیز اگر موجود باشد)
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -20,12 +29,12 @@ export default {
       const uUuid = user.uuid;
 
       if (user.protocol === "VLESS") {
-        link = `vless://${uUuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = `vless://${uUuid}@${activeCleanIp}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else if (user.protocol === "Trojan") {
-        link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = `trojan://${uUuid}@${activeCleanIp}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else {
         const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
-        link = `ss://${auth}@${host}:443#${encodedName}`;
+        link = `ss://${auth}@${activeCleanIp}:443#${encodedName}`;
       }
 
       return new Response(btoa(unescape(encodeURIComponent(link))), {
@@ -43,7 +52,7 @@ export default {
       const yamlContent = `proxies:
   - name: "${user.username}-${user.protocol}"
     type: ${user.protocol.toLowerCase()}
-    server: ${host}
+    server: ${activeCleanIp}
     port: 443
     uuid: ${uUuid}
     network: ws
@@ -69,12 +78,13 @@ export default {
       });
     }
 
-    // API لیست کاربران
+    // API لیست کاربران و آی‌پی فعال
     if (path === "/api/users" && method === "GET") {
       const { results } = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
       return jsonResponse({
         success: true,
         users: results || [],
+        activeCleanIp: activeCleanIp,
         metrics: {
           total: (results || []).length,
           active: (results || []).filter(u => u.status === 'active').length,
@@ -82,7 +92,20 @@ export default {
       });
     }
 
-    // API ایجاد کاربر جدید با پیش‌وند KINGAMIR_
+    // API ذخیره و تنظیم آی‌پی تمیز برتر
+    if (path === "/api/set-clean-ip" && method === "POST") {
+      const body = await request.json();
+      const ip = body.ip ? body.ip.trim() : "";
+      if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
+
+      // ایجاد جدول تنظیمات اگر وجود نداشته باشد
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+      await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)`).bind(ip).run();
+
+      return jsonResponse({ success: true, message: "آی‌پی تمیز با موفقیت روی کل کانفینگ‌ها ست شد." });
+    }
+
+    // API ایجاد کاربر جدید
     if (path === "/api/users" && method === "POST") {
       const body = await request.json();
       let rawName = body.username ? body.username.trim() : "";
@@ -135,7 +158,7 @@ function generateUUID() {
 }
 
 function generateUserStatusHtml(username, host) {
-  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل (KingAmir)</p><p style="color:#9ca3af;font-size:12px;">سرور: ${host}</p></div></body></html>`;
+  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل (KingAmir)</p><p style="color:#9ca3af;font-size:12px;">سرور اصلی: ${host}</p></div></body></html>`;
 }
 
 function getMasterDashboardHtml(host) {
@@ -172,7 +195,7 @@ function getMasterDashboardHtml(host) {
         .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 16px; border-radius: 14px; position: relative; overflow: hidden; }
         .stat-card::after { content: ''; position: absolute; top: 0; right: 0; width: 4px; height: 100%; background: var(--gold); }
         .stat-title { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; text-transform: uppercase; }
-        .stat-val { font-size: 18px; font-weight: 900; color: var(--text-main); }
+        .stat-val { font-size: 16px; font-weight: 900; color: var(--text-main); }
         .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; background: var(--bg-card); border: 1px solid var(--border-color); padding: 14px 18px; border-radius: 14px; gap: 12px; flex-wrap: wrap; }
         .search-box { flex: 1; min-width: 250px; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 12px; padding: 11px 16px; color: white; outline: none; font-size: 13px; }
         .search-box:focus { border-color: var(--gold); }
@@ -210,8 +233,8 @@ function getMasterDashboardHtml(host) {
         .form-group.full { grid-column: span 2; }
         .form-row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; }
-        input, select { width: 100%; padding: 12px 16px; background: var(--bg-base); border: 1px solid var(--border-color); color: white; border-radius: 12px; outline: none; font-size: 13px; }
-        input:focus, select:focus { border-color: var(--gold); }
+        input, select, textarea { width: 100%; padding: 12px 16px; background: var(--bg-base); border: 1px solid var(--border-color); color: white; border-radius: 12px; outline: none; font-size: 13px; }
+        input:focus, select:focus, textarea:focus { border-color: var(--gold); }
         .toggle-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-base); padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 12px; }
         .modal-footer { display: flex; gap: 12px; margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px; }
     </style>
@@ -223,14 +246,14 @@ function getMasterDashboardHtml(host) {
             <div class="logo-text">KINGAMIR PANEL</div>
             <div class="server-status-pill">
                 <div class="pulse-dot"></div>
-                <span>آنلاین و فعال</span>
+                <span id="active-ip-display">در حال بارگذاری آی‌پی...</span>
             </div>
         </header>
 
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-title">وضعیت سرور</div>
-                <div class="stat-val" style="color:var(--success); font-size:15px;">پایداری کامل</div>
+                <div class="stat-val" style="color:var(--success);">پایداری کامل</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title">تعداد کل کاربران</div>
@@ -240,11 +263,15 @@ function getMasterDashboardHtml(host) {
 
         <div class="toolbar">
             <input type="text" class="search-box" id="search-input" placeholder="🔍 جستجوی نام کاربری..." onkeyup="filterUsers()">
-            <button class="btn-gold" onclick="openModal()">+ ایجاد کاربر جدید</button>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-outline" onclick="openCleanIpModal()" style="border-color: var(--gold); color: var(--gold);">⚡ مخزن آی‌پی تمیز</button>
+                <button class="btn-gold" onclick="openModal()">+ ایجاد کاربر جدید</button>
+            </div>
         </div>
 
         <div class="users-list" id="users-container"></div>
 
+        <!-- مدال ایجاد کاربر -->
         <div class="modal" id="userModal">
             <div class="modal-content">
                 <div class="modal-header">
@@ -296,6 +323,28 @@ function getMasterDashboardHtml(host) {
                 </form>
             </div>
         </div>
+
+        <!-- مدال مخزن آی‌پی تمیز -->
+        <div class="modal" id="cleanIpModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">⚡ مخزن و تست آی‌پی‌های تمیز</div>
+                    <button class="close-btn" onclick="closeCleanIpModal()">&times;</button>
+                </div>
+                <div>
+                    <label>لیست آی‌پی‌های تمیز (هر آی‌پی در یک خط یا با کاما جدا کنید):</label>
+                    <textarea id="ip-textarea" rows="6" placeholder="104.16.x.x\n172.67.x.x\n162.159.x.x" style="margin-top: 8px; font-family: monospace;"></textarea>
+                    
+                    <div id="test-results" style="margin-top: 15px; font-size: 12px; color: var(--text-muted); max-height: 150px; overflow-y: auto;"></div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn-outline" onclick="closeCleanIpModal()" style="flex: 1;">انصراف</button>
+                        <button type="button" class="btn-gold" onclick="testAndSaveIps()" style="flex: 2; justify-content: center;">تست پینگ و اعمال سریع‌ترین</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -309,6 +358,7 @@ function getMasterDashboardHtml(host) {
                 if(data.success) {
                     allUsersCache = data.users;
                     document.getElementById('stat-total').innerText = data.metrics.total;
+                    document.getElementById('active-ip-display').innerText = 'آی‌پی فعال: ' + data.activeCleanIp;
                     renderUsers(allUsersCache);
                 }
             } catch(e) { console.error(e); }
@@ -388,6 +438,72 @@ function getMasterDashboardHtml(host) {
 
         function closeModal() { 
             document.getElementById('userModal').style.display = 'none'; 
+        }
+
+        function openCleanIpModal() {
+            document.getElementById('cleanIpModal').style.display = 'flex';
+            document.getElementById('test-results').innerHTML = '';
+        }
+
+        function closeCleanIpModal() {
+            document.getElementById('cleanIpModal').style.display = 'none';
+        }
+
+        // تست سرعت پینگ آی‌پی‌ها و انتخاب سریع‌ترین به صورت خودکار
+        async function testAndSaveIps() {
+            const rawText = document.getElementById('ip-textarea').value;
+            const ips = rawText.split(/[\\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
+            
+            if(ips.length === 0) {
+                alert('لطفاً حداقل یک آی‌پی وارد کنید.');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = '⏳ در حال تست سرعت و پینگ آی‌پی‌ها...';
+
+            let bestIp = null;
+            let minPing = 999999;
+            let summaryHtml = '';
+
+            for(let ip of ips) {
+                const startTime = performance.now();
+                try {
+                    // تست پینگ از طریق درخواست سبک به آی‌پی
+                    await fetch('https://' + ip + '/cdn-cgi/trace', { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
+                    const ping = Math.round(performance.now() - startTime);
+                    
+                    summaryHtml += \`<div style="color:var(--success);">✅ آی‌پی \${ip} - پینگ: \${ping}ms</div>\`;
+                    if(ping < minPing) {
+                        minPing = ping;
+                        bestIp = ip;
+                    }
+                } catch(e) {
+                    summaryHtml += \`<div style="color:var(--danger);">❌ آی‌پی \${ip} - نامعتبر یا خارج از دسترس</div>\`;
+                }
+                resultsDiv.innerHTML = summaryHtml;
+            }
+
+            if(bestIp) {
+                resultsDiv.innerHTML += \`<div style="color:var(--gold); font-weight:bold; margin-top:10px;">🏆 سریع‌ترین آی‌پی شناسایی شد: \{bestIp} (پینگ: \${minPing}ms). در حال اعمال روی کانفینگ‌ها...</div>\`;
+                
+                // ارسال سریع‌ترین آی‌پی به سرور برای ذخیره در دیتابیس
+                const res = await fetch('/api/set-clean-ip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip: bestIp })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    setTimeout(() => {
+                        alert('آی‌پی تمیز با موفقیت روی تمام لینک‌های ساب‌سکریپشن اعمال شد!');
+                        closeCleanIpModal();
+                        loadUsers();
+                    }, 1000);
+                }
+            } else {
+                resultsDiv.innerHTML += \`<div style="color:var(--danger); font-weight:bold; margin-top:10px;">⚠️ هیچ‌کدام از آی‌پی‌ها پاسخ ندادند. لطفاً لیست دیگری امتحان کنید.</div>\`;
+            }
         }
 
         document.getElementById('user-form').addEventListener('submit', async (e) => {
