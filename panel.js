@@ -1,23 +1,13 @@
-import { connect } from 'cloudflare:sockets';
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
-    const upgradeHeader = request.headers.get("Upgrade");
-
-    // اگر درخواست اتصال پروکسی (WebSocket) بود
-    if (upgradeHeader === "websocket") {
-      return await vlessOverWSHandler(request);
-    }
+    const host = url.host; // استفاده خودکار از دامنه ورکر شما (مثلاً kingamir.quzalkexuyzs.workers.dev)
 
     if (!env.DB) {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
-
-    // لینک ثابت پنل و پروکسی شما
-    const proxyDomain = "kingpanel.quzalkexuyzs.workers.dev";
 
     // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
@@ -30,9 +20,9 @@ export default {
       const uUuid = user.uuid;
 
       if (user.protocol === "VLESS") {
-        link = `vless://${uUuid}@${proxyDomain}:443?encryption=none&security=tls&sni=${proxyDomain}&fp=randomized&type=ws&host=${proxyDomain}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = `vless://${uUuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else {
-        link = `trojan://${uUuid}@${proxyDomain}:443?security=tls&sni=${proxyDomain}&type=ws&host=${proxyDomain}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       }
 
       return new Response(btoa(unescape(encodeURIComponent(link))), {
@@ -50,18 +40,18 @@ export default {
       const yamlContent = `proxies:
   - name: "${user.username}-${user.protocol}"
     type: ${user.protocol.toLowerCase()}
-    server: ${proxyDomain}
+    server: ${host}
     port: 443
     uuid: ${uUuid}
     network: ws
     tls: true
-    sni: ${proxyDomain}
+    sni: ${host}
     skip-cert-verify: true
     client-fingerprint: chrome
     ws-opts:
       path: "/?ed=2048"
       headers:
-        Host: ${proxyDomain}`;
+        Host: ${host}`;
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
@@ -71,7 +61,7 @@ export default {
     // صفحه وضعیت کاربر
     if (path.startsWith("/status/") && method === "GET") {
       const username = path.split("/")[2];
-      return new Response(generateUserStatusHtml(username, proxyDomain), {
+      return new Response(generateUserStatusHtml(username, host), {
         headers: { "Content-Type": "text/html;charset=UTF-8" }
       });
     }
@@ -122,95 +112,11 @@ export default {
     }
 
     // نمایش پنل مدیریت اختصاصی KingAmir
-    return new Response(getMasterDashboardHtml(proxyDomain), {
+    return new Response(getMasterDashboardHtml(host), {
       headers: { "Content-Type": "text/html;charset=UTF-8" }
     });
   }
 };
-
-// هسته پروکسی WebSocket
-async function vlessOverWSHandler(request) {
-  const webSocketPair = new WebSocketPair();
-  const [client, webSocket] = Object.values(webSocketPair);
-  webSocket.accept();
-  
-  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader);
-  let remoteSocketWapper = { value: null };
-
-  readableWebSocketStream.pipeTo(new WritableStream({
-    async write(chunk) {
-      if (remoteSocketWapper.value) {
-        const writer = remoteSocketWapper.value.writable.getWriter();
-        await writer.write(chunk);
-        writer.releaseLock();
-        return;
-      }
-      const { hasError, message, portRemote = 443, addressRemote = '', rawDataIndex, vlessVersion = new Uint8Array([0, 0]) } = processVlessHeader(chunk);
-      if (hasError) throw new Error(message);
-      
-      const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
-      const rawClientData = chunk.slice(rawDataIndex);
-      handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
-    },
-  })).catch(() => {});
-
-  return new Response(null, { status: 101, webSocket: client });
-}
-
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader) {
-  const tcpSocket = connect({ hostname: addressRemote, port: portRemote });
-  remoteSocket.value = tcpSocket;
-  const writer = tcpSocket.writable.getWriter();
-  await writer.write(rawClientData);
-  writer.releaseLock();
-  
-  remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader);
-}
-
-function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
-  let readableStreamCancel = false;
-  return new ReadableStream({
-    start(controller) {
-      webSocketServer.addEventListener('message', (event) => {
-        if (!readableStreamCancel) controller.enqueue(event.data);
-      });
-      webSocketServer.addEventListener('close', () => {
-        safeCloseWebSocket(webSocketServer);
-        if (!readableStreamCancel) controller.close();
-      });
-    },
-    cancel() {
-      readableStreamCancel = true;
-      safeCloseWebSocket(webSocketServer);
-    }
-  });
-}
-
-function processVlessHeader(vlessBuffer) {
-  if (vlessBuffer.byteLength < 24) return { hasError: true, message: 'invalid data' };
-  const version = new Uint8Array(vlessBuffer.slice(0, 1));
-  return { hasError: false, addressRemote: '127.0.0.1', portRemote: 443, rawDataIndex: 24, vlessVersion: version };
-}
-
-async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
-  let vlessHeader = vlessResponseHeader;
-  await remoteSocket.readable.pipeTo(new WritableStream({
-    async write(chunk) {
-      if (webSocket.readyState !== 1) return;
-      if (vlessHeader) {
-        webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
-        vlessHeader = null;
-      } else {
-        webSocket.send(chunk);
-      }
-    },
-  })).catch(() => { safeCloseWebSocket(webSocket); });
-}
-
-function safeCloseWebSocket(socket) {
-  try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) {}
-}
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json;charset=UTF-8" } });
