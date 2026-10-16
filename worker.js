@@ -6,9 +6,7 @@ export default {
     const host = url.hostname;
 
     if (!env.DB) {
-      return new Response("خطا: دیتابیس D1 متصل نشده است.", {
-        status: 500
-      });
+      return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
     try {
@@ -35,10 +33,47 @@ export default {
         )
       `).run();
     } catch (error) {
-      return json({
-        success: false,
-        error: "خطای آماده‌سازی دیتابیس."
-      }, 500);
+      return json({ success: false, error: "خطای آماده‌سازی دیتابیس." }, 500);
+    }
+
+    // -----------------------------------------------------
+    // SECURE ADMIN AUTHENTICATION (NO HARDCODED FALLBACKS)
+    // -----------------------------------------------------
+    if (path.startsWith("/api/") || path === "/") {
+      const adminUser = env.ADMIN_USER;
+      const adminPass = env.ADMIN_PASSWORD;
+
+      if (!adminUser || !adminPass) {
+        return new Response(
+          "خطای امنیتی: متغیرهای محیطی ADMIN_USER و ADMIN_PASSWORD تنظیم نشده‌اند.",
+          { status: 500 }
+        );
+      }
+
+      const authHeader = request.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Basic ")) {
+        return new Response("Authentication required", {
+          status: 401,
+          headers: { "WWW-Authenticate": 'Basic realm="KINGAMIR PANEL"' }
+        });
+      }
+
+      try {
+        const base64Credentials = authHeader.split(" ")[1];
+        const credentials = atob(base64Credentials);
+        const colonIndex = credentials.indexOf(":");
+        if (colonIndex === -1) {
+          return new Response("Invalid credentials format", { status: 401 });
+        }
+        const username = credentials.slice(0, colonIndex);
+        const password = credentials.slice(colonIndex + 1);
+
+        if (username !== adminUser || password !== adminPass) {
+          return new Response("Invalid credentials", { status: 401 });
+        }
+      } catch {
+        return new Response("Invalid authentication encoding", { status: 400 });
+      }
     }
 
     const activeRow = await env.DB
@@ -51,11 +86,7 @@ export default {
     // -----------------------------------------------------
     // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS
     // -----------------------------------------------------
-
-    if (
-      (path.startsWith("/sub/") || path.startsWith("/yaml/")) &&
-      method === "GET"
-    ) {
+    if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {
       const username = decodeURIComponent(path.split("/")[2] || "");
 
       if (!username) {
@@ -76,7 +107,6 @@ export default {
       }
 
       const port = Number(user.port || 443);
-
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
         return new Response("Invalid port", { status: 500 });
       }
@@ -101,10 +131,7 @@ export default {
           `&type=ws` +
           `&host=${encodeURIComponent(host)}` +
           `&path=%2F%3Fed%3D2048#${name}`;
-      } else if (
-        protocol === "shadowsocks" ||
-        protocol === "ss"
-      ) {
+      } else if (protocol === "shadowsocks" || protocol === "ss") {
         const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
         config = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
       } else {
@@ -118,12 +145,8 @@ export default {
           `    type: ${protocol}`,
           `    server: "${yamlEscape(activeCleanIp)}"`,
           `    port: ${port}`,
-          protocol === "vless"
-            ? `    uuid: "${user.uuid}"`
-            : `    password: "${user.uuid}"`,
-          protocol === "vless"
-            ? "    encryption: none"
-            : "",
+          protocol === "vless" ? `    uuid: "${user.uuid}"` : `    password: "${user.uuid}"`,
+          protocol === "vless" ? "    encryption: none" : "",
           "    network: ws",
           "    tls: true",
           `    servername: "${yamlEscape(host)}"`,
@@ -156,10 +179,8 @@ export default {
     // -----------------------------------------------------
     // USER STATUS
     // -----------------------------------------------------
-
     if (path.startsWith("/status/") && method === "GET") {
       const username = decodeURIComponent(path.split("/")[2] || "");
-
       const user = await env.DB
         .prepare("SELECT username, status FROM users WHERE username = ?")
         .bind(username)
@@ -178,12 +199,7 @@ export default {
         <body style="background:#030508;color:#fff;font-family:sans-serif;padding:30px">
           <main style="max-width:480px;margin:auto;background:#0a0e17;padding:25px;border-radius:18px">
             <h2 style="color:#f59e0b">${escapeHtml(user.username)}</h2>
-            <p>وضعیت حساب:
-              ${user.status === "disabled" ? "غیرفعال" : "فعال"}
-            </p>
-            <p style="color:#9ca3af">
-              فعال بودن حساب به معنی تأیید اتصال واقعی نیست.
-            </p>
+            <p>وضعیت حساب: ${user.status === "disabled" ? "غیرفعال" : "فعال"}</p>
           </main>
         </body>
         </html>
@@ -193,29 +209,18 @@ export default {
     // -----------------------------------------------------
     // GET USERS AND SAVED IPS
     // -----------------------------------------------------
-
     if (path === "/api/users" && method === "GET") {
-      const usersResult = await env.DB
-        .prepare("SELECT * FROM users ORDER BY rowid DESC")
-        .all();
-
-      const ipsResult = await env.DB
-        .prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'")
-        .all();
+      const usersResult = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
+      const ipsResult = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
 
       return json({
         success: true,
         users: usersResult.results || [],
-        savedIps: (ipsResult.results || []).map(row => ({
-          id: row.key,
-          ip: row.value
-        })),
+        savedIps: (ipsResult.results || []).map(row => ({ id: row.key, ip: row.value })),
         activeCleanIp,
         metrics: {
           total: (usersResult.results || []).length,
-          active: (usersResult.results || []).filter(
-            user => user.status === "active"
-          ).length
+          active: (usersResult.results || []).filter(u => u.status === 'active').length
         }
       });
     }
@@ -223,391 +228,206 @@ export default {
     // -----------------------------------------------------
     // ADD OR EDIT USER
     // -----------------------------------------------------
-
     if (path === "/api/users" && method === "POST") {
       const body = await readJson(request);
-
-      if (!body) {
-        return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);
-      }
+      if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);
 
       const rawName = String(body.username || "").trim();
+      if (!rawName) return json({ error: "نام کاربری الزامی است." }, 400);
 
-      if (!rawName) {
-        return json({ error: "نام کاربری الزامی است." }, 400);
-      }
-
-      const username = rawName.toUpperCase().startsWith("👑KING_")
-        ? rawName
-        : "👑KING_" + rawName;
-
+      const username = rawName.toUpperCase().startsWith("👑KING_") ? rawName : "👑KING_" + rawName;
       const protocol = String(body.protocol || "VLESS");
-      const allowedProtocols = ["VLESS", "Trojan", "Shadowsocks"];
-
-      if (!allowedProtocols.includes(protocol)) {
+      if (!["VLESS", "Trojan", "Shadowsocks"].includes(protocol)) {
         return json({ error: "پروتکل معتبر نیست." }, 400);
       }
 
       const port = String(body.port || "443");
-      const allowedPorts = ["443", "2053", "2083", "2087", "8443"];
-
-      if (!allowedPorts.includes(port)) {
+      if (!["443", "2053", "2083", "2087", "8443"].includes(port)) {
         return json({ error: "پورت معتبر نیست." }, 400);
       }
 
-      const trafficNumber = Number(body.traffic ?? 100);
-      const expireNumber = Number(body.expire ?? 30);
-
-      if (
-        !Number.isFinite(trafficNumber) ||
-        trafficNumber <= 0 ||
-        !Number.isFinite(expireNumber) ||
-        expireNumber <= 0
-      ) {
-        return json({
-          error: "حجم و مدت اعتبار باید عدد مثبت باشند."
-        }, 400);
+      const trafficNum = Number(body.traffic ?? 100);
+      const expireNum = Number(body.expire ?? 30);
+      if (!Number.isFinite(trafficNum) || trafficNum <= 0 || !Number.isFinite(expireNum) || expireNum <= 0) {
+        return json({ error: "حجم و اعتبار باید اعداد مثبت باشند." }, 400);
       }
 
-      const traffic = `${trafficNumber} GB`;
-      const expire = `${expireNumber} روز`;
-      const adblock = body.adblock === "off" ? "off" : "on";
-      const adultBlock = body.adult_block === "off" ? "off" : "on";
+      const traffic = `${trafficNum} GB`;
+      const expire = `${expireNum} روز`;
       const status = body.status === "disabled" ? "disabled" : "active";
 
       if (body.id) {
-        const existing = await env.DB
-          .prepare("SELECT id FROM users WHERE id = ?")
-          .bind(String(body.id))
-          .first();
-
-        if (!existing) {
-          return json({ error: "کاربر پیدا نشد." }, 404);
-        }
+        const existingUser = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(String(body.id)).first();
+        if (!existingUser) return json({ error: "کاربر مورد نظر یافت نشد." }, 404);
 
         await env.DB.prepare(`
-          UPDATE users
-          SET protocol = ?, traffic = ?, expire = ?, port = ?,
-              adblock = ?, adult_block = ?, status = ?
-          WHERE id = ?
-        `).bind(
-          protocol, traffic, expire, port,
-          adblock, adultBlock, status, String(body.id)
-        ).run();
+          UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, status = ? WHERE id = ?
+        `).bind(protocol, traffic, expire, port, status, String(body.id)).run();
 
-        return json({
-          success: true,
-          message: "کاربر ویرایش شد."
-        });
+        return json({ success: true, message: "کاربر ویرایش شد." });
       }
 
-      const existing = await env.DB
-        .prepare("SELECT id FROM users WHERE username = ?")
-        .bind(username)
-        .first();
-
-      if (existing) {
-        return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
-      }
+      const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
+      if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
 
       const id = "usr_" + crypto.randomUUID();
       const uuid = crypto.randomUUID();
 
       await env.DB.prepare(`
-        INSERT INTO users
-        (id, username, uuid, protocol, traffic, expire, port,
-         tls, adblock, adult_block, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, ?)
-      `).bind(
-        id, username, uuid, protocol, traffic, expire, port,
-        adblock, adultBlock, status
-      ).run();
+        INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', 'on', 'on', ?)
+      `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
 
-      return json({
-        success: true,
-        message: "کاربر ثبت شد."
-      });
+      return json({ success: true, message: "کاربر ثبت شد." });
     }
 
     // -----------------------------------------------------
     // DELETE USER
     // -----------------------------------------------------
-
     if (path.startsWith("/api/users/") && method === "DELETE") {
       const id = decodeURIComponent(path.slice("/api/users/".length));
+      if (!id) return json({ error: "شناسه نامعتبر است." }, 400);
 
-      if (!id) {
-        return json({ error: "شناسه کاربر الزامی است." }, 400);
-      }
-
-      await env.DB
-        .prepare("DELETE FROM users WHERE id = ?")
-        .bind(id)
-        .run();
-
+      await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
       return json({ success: true });
     }
 
     // -----------------------------------------------------
-    // SAVE AND ACTIVATE CLEAN IP
+    // SET CLEAN IP
     // -----------------------------------------------------
-
     if (path === "/api/set-clean-ip" && method === "POST") {
       const body = await readJson(request);
+      const ip = String(body?.ip || "").trim();
+      if (!isValidIp(ip)) return json({ error: "قالب IP معتبر نیست." }, 400);
 
-      if (!body) {
-        return json({ error: "درخواست نامعتبر است." }, 400);
-      }
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(makeIpKey(ip), ip).run();
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
 
-      const ip = String(body.ip || "").trim();
-
-      if (!isValidIp(ip)) {
-        return json({ error: "قالب IPv4 یا IPv6 معتبر نیست." }, 400);
-      }
-
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO settings (key, value)
-        VALUES (?, ?)
-      `).bind(makeIpKey(ip), ip).run();
-
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO settings (key, value)
-        VALUES ('clean_ip', ?)
-      `).bind(ip).run();
-
-      return json({
-        success: true,
-        activeCleanIp: ip,
-        message: "IP ذخیره و انتخاب شد."
-      });
+      return json({ success: true, activeCleanIp: ip });
     }
 
     // -----------------------------------------------------
-    // IMPORT MULTIPLE IPS
+    // IMPORT IPS
     // -----------------------------------------------------
-
     if (path === "/api/import-ips" && method === "POST") {
       const body = await readJson(request);
-
-      if (!body || typeof body.ips !== "string") {
-        return json({
-          error: "فیلد ips باید شامل فهرست IPها باشد."
-        }, 400);
-      }
-
-      const input = [...new Set(
-        body.ips.split(/[\s,;]+/).map(ip => ip.trim()).filter(Boolean)
-      )];
+      const rawIps = String(body?.ips || "");
+      const input = [...new Set(rawIps.split(/[\s,;]+/).map(i => i.trim()).filter(Boolean))];
 
       if (input.length === 0 || input.length > 500) {
-        return json({
-          error: "تعداد IP باید بین ۱ تا ۵۰۰ باشد."
-        }, 400);
+        return json({ error: "تعداد IPها باید بین ۱ تا ۵۰۰ باشد." }, 400);
       }
 
       const valid = input.filter(isValidIp);
-      const invalid = input.filter(ip => !isValidIp(ip));
-
       for (const ip of valid) {
-        await env.DB.prepare(`
-          INSERT OR REPLACE INTO settings (key, value)
-          VALUES (?, ?)
-        `).bind(makeIpKey(ip), ip).run();
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(makeIpKey(ip), ip).run();
       }
 
-      return json({
-        success: true,
-        saved: valid.length,
-        invalid,
-        message: `${valid.length} IP ذخیره شد.`
-      });
+      return json({ success: true, saved: valid.length });
     }
 
     // -----------------------------------------------------
     // SELECT SAVED IP
     // -----------------------------------------------------
-
     if (path === "/api/select-clean-ip" && method === "POST") {
       const body = await readJson(request);
       const ip = String(body?.ip || "").trim();
+      if (!isValidIp(ip)) return json({ error: "قالب IP معتبر نیست." }, 400);
 
-      if (!isValidIp(ip)) {
-        return json({ error: "قالب IP معتبر نیست." }, 400);
-      }
-
-      const saved = await env.DB
-        .prepare("SELECT value FROM settings WHERE key = ?")
-        .bind(makeIpKey(ip))
-        .first();
-
+      const saved = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(makeIpKey(ip)).first();
       if (!saved || saved.value !== ip) {
         return json({ error: "این IP در مخزن ذخیره نشده است." }, 404);
       }
 
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO settings (key, value)
-        VALUES ('clean_ip', ?)
-      `).bind(ip).run();
-
-      return json({
-        success: true,
-        activeCleanIp: ip
-      });
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
+      return json({ success: true, activeCleanIp: ip });
     }
 
     // -----------------------------------------------------
     // DELETE SAVED IP
     // -----------------------------------------------------
-
     if (path.startsWith("/api/delete-ip/") && method === "DELETE") {
       const key = decodeURIComponent(path.slice("/api/delete-ip/".length));
+      if (!/^ip_[a-zA-Z0-9_]+$/.test(key)) return json({ error: "کلید نامعتبر است." }, 400);
 
-      if (!/^ip_[a-zA-Z0-9_]+$/.test(key)) {
-        return json({ error: "شناسه IP معتبر نیست." }, 400);
-      }
+      const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+      if (!row) return json({ error: "IP یافت نشد." }, 404);
 
-      const row = await env.DB
-        .prepare("SELECT value FROM settings WHERE key = ?")
-        .bind(key)
-        .first();
+      const active = await env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first();
 
-      if (!row) {
-        return json({ error: "IP پیدا نشد." }, 404);
-      }
-
-      const active = await env.DB
-        .prepare("SELECT value FROM settings WHERE key = 'clean_ip'")
-        .first();
-
-      await env.DB
-        .prepare("DELETE FROM settings WHERE key = ?")
-        .bind(key)
-        .run();
+      await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(key).run();
 
       if (active?.value === row.value) {
-        await env.DB
-          .prepare("DELETE FROM settings WHERE key = 'clean_ip'")
-          .run();
+        await env.DB.prepare("DELETE FROM settings WHERE key = 'clean_ip'").run();
       }
 
       return json({ success: true });
     }
 
     // -----------------------------------------------------
-    // OFFICIAL CLOUDFLARE IP RANGES
+    // CLOUDFLARE RANGES
     // -----------------------------------------------------
-
     if (path === "/api/cloudflare-ranges" && method === "GET") {
-      try {
-        const [r4, r6] = await Promise.all([
-          fetch("https://www.cloudflare.com/ips-v4"),
-          fetch("https://www.cloudflare.com/ips-v6")
-        ]);
-
-        if (!r4.ok || !r6.ok) {
-          throw new Error("Failed to fetch ranges");
-        }
-
-        const [ipv4, ipv6] = await Promise.all([
-          r4.text(),
-          r6.text()
-        ]);
-
-        return json({
-          success: true,
-          ipv4: ipv4.trim().split(/\s+/).filter(Boolean),
-          ipv6: ipv6.trim().split(/\s+/).filter(Boolean),
-          note: "این‌ها محدوده‌های رسمی Cloudflare هستند، نه IPهای تست‌شده."
-        });
-      } catch {
-        return json({
-          success: false,
-          error: "دریافت محدوده‌های Cloudflare ناموفق بود."
-        }, 502);
-      }
+      const [r4, r6] = await Promise.all([
+        fetch("https://www.cloudflare.com/ips-v4"),
+        fetch("https://www.cloudflare.com/ips-v6")
+      ]);
+      return json({
+        success: true,
+        ipv4: (await r4.text()).trim().split(/\s+/).filter(Boolean),
+        ipv6: (await r6.text()).trim().split(/\s+/).filter(Boolean)
+      });
     }
-
-    // -----------------------------------------------------
-    // DASHBOARD
-    // -----------------------------------------------------
 
     return html(dashboard(host));
   }
 };
 
-
-// =========================================================
-// HELPERS
-// =========================================================
-
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "Content-Type": "application/json; charset=UTF-8",
-      "Cache-Control": "no-store"
-    }
+    headers: { "Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store" }
   });
 }
 
 async function readJson(request) {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
+  try { return await request.json(); } catch { return null; }
 }
 
 function html(content) {
   return new Response(content, {
-    headers: {
-      "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "no-store"
-    }
+    headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-store" }
   });
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[char]);
+function escapeHtml(val) {
+  return String(val ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
 }
 
-function yamlEscape(value) {
-  return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+function yamlEscape(val) {
+  return String(val ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function isValidIPv4(ip) {
   const parts = ip.split(".");
   if (parts.length !== 4) return false;
-
   return parts.every(part => {
     if (!/^\d{1,3}$/.test(part)) return false;
     if (part.length > 1 && part.startsWith("0")) return false;
-    return Number(part) >= 0 && Number(part) <= 255;
+    const n = Number(part);
+    return n >= 0 && n <= 255;
   });
 }
 
 function isValidIPv6(ip) {
-  if (!ip.includes(":") || !/^[0-9a-fA-F:]+$/.test(ip)) {
-    return false;
-  }
-
+  if (!ip.includes(":") || !/^[0-9a-fA-F:]+$/.test(ip)) return false;
   if (ip.includes(":::")) return false;
-
   const halves = ip.split("::");
   if (halves.length > 2) return false;
-
-  const count = s => s ? s.split(":").length : 0;
-
-  if (halves.length === 1) {
-    return count(ip) === 8;
-  }
-
+  const count = s => (s ? s.split(":").length : 0);
+  if (halves.length === 1) return count(ip) === 8;
   return count(halves[0]) + count(halves[1]) < 8;
 }
 
@@ -619,14 +439,8 @@ function makeIpKey(ip) {
   return "ip_" + ip.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
-
-// =========================================================
-// DASHBOARD UI
-// =========================================================
-
 function dashboard(host) {
   const safeHost = JSON.stringify(host);
-
   return `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
@@ -643,7 +457,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fl
 h1{font-size:21px;color:var(--gold);margin:0}
 h2{font-size:16px}
 .muted{color:var(--muted);font-size:12px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:15px}
 .stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:12px}
 .stat b{display:block;font-size:22px;color:var(--gold);margin-top:6px}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap}
@@ -719,7 +533,7 @@ dialog::backdrop{background:#000b}
   <button class="gold" onclick="importIps()">واردکردن IPها</button>
   <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>
 
-  <p class="muted">محدوده‌های رسمی، IPهای تست‌شده نیستند. نتیجه این پنل تضمین اتصال VLESS نیست.</p>
+  <p class="muted">محدوده‌های رسمی، IPهای تست‌شده نیستند. نتیجه این پنل تضمین اتصال مستقیم VLESS نیست.</p>
   <div id="range-output"></div>
   <h3>IPهای ذخیره‌شده</h3>
   <div id="ip-list">در حال بارگذاری...</div>
@@ -895,19 +709,14 @@ async function importIps() {
   const ips = document.getElementById("bulk-ips").value;
 
   try {
-    const data = await api("/api/import-import-ips", { // اصلاح مسیر به حالت صحیح API
+    const data = await api("/api/import-ips", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ips})
-    }).catch(() => api("/api/import-ips", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ips})
-    }));
+    });
 
     await loadAll();
-    alert("ذخیره‌شده: " + data.saved +
-      "\\nنامعتبر: " + (data.invalid || []).length);
+    alert("ذخیره‌شده: " + data.saved);
   } catch(e) {
     alert(e.message);
   }
@@ -934,7 +743,7 @@ async function deleteIp(id) {
     await api("/api/delete-ip/" + encodeURIComponent(id), {
       method:"DELETE"
     });
-    await loadAll();
+    loadAll();
   } catch(e) {
     alert(e.message);
   }
