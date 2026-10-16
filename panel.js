@@ -18,7 +18,7 @@ export default {
       }
     } catch(e) {}
 
-    // ساب متنی Base64 (با استفاده از آی‌پی تمیز اگر موجود باشد)
+    // ساب متنی Base64 (اصلاح‌شده و کاملاً استاندارد برای کلاینت‌ها)
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -29,7 +29,7 @@ export default {
       const uUuid = user.uuid;
 
       if (user.protocol === "VLESS") {
-        link = `vless://${uUuid}@${activeCleanIp}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = `vless://${uUuid}@${activeCleanIp}:443?encryption=none&security=tls&sni=${host}&fp=chrome&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else if (user.protocol === "Trojan") {
         link = `trojan://${uUuid}@${activeCleanIp}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
       } else {
@@ -37,7 +37,11 @@ export default {
         link = `ss://${auth}@${activeCleanIp}:443#${encodedName}`;
       }
 
-      return new Response(btoa(unescape(encodeURIComponent(link))), {
+      // استفاده از انکودینگ استاندارد UTF-8 برای جلوگیری از خطای کانفینگ
+      const utf8Encoder = new TextEncoder();
+      const encodedBase64 = btoa(String.fromCharCode(...utf8Encoder.encode(link)));
+
+      return new Response(encodedBase64, {
         headers: { "Content-Type": "text/plain;charset=UTF-8", "Cache-Control": "no-store" }
       });
     }
@@ -504,4 +508,3 @@ function getMasterDashboardHtml(host) {
     </script>
 </body>
 </html>`;
-}
