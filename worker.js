@@ -29,15 +29,22 @@ export default {
 
       const uUuid = user.uuid;
       const uPort = user.port || "443";
+      const protocol = (user.protocol || "VLESS").toLowerCase();
       const encodedName = encodeURIComponent(user.username);
 
-      const vlessLink = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
-      const trojanLink = "trojan://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-Trojan";
-      const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
-      const ssLink = "ss://" + auth + "@" + activeCleanIp + ":" + uPort + "#" + encodedName + "-SS";
+      let singleConfig = "";
+      if (protocol === "vless") {
+        singleConfig = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
+      } else if (protocol === "trojan") {
+        singleConfig = "trojan://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-Trojan";
+      } else if (protocol === "shadowsocks" || protocol === "ss") {
+        const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
+        singleConfig = "ss://" + auth + "@" + activeCleanIp + ":" + uPort + "#" + encodedName + "-SS";
+      } else {
+        singleConfig = "vless://" + uUuid + "@" + activeCleanIp + ":" + uPort + "?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName + "-VLESS";
+      }
 
-      const allConfigs = vlessLink + "\n" + trojanLink + "\n" + ssLink;
-      const encodedBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(allConfigs)));
+      const encodedBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(singleConfig)));
 
       return new Response(encodedBase64, {
         headers: { "Content-Type": "text/plain;charset=UTF-8", "Cache-Control": "no-store" }
@@ -51,7 +58,16 @@ export default {
 
       const uUuid = user.uuid;
       const uPort = user.port || "443";
-      const yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      const proto = (user.protocol || "vless").toLowerCase();
+      
+      let yamlContent = "";
+      if (proto === "vless") {
+        yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      } else if (proto === "trojan") {
+        yamlContent = "proxies:\n  - name: \"" + user.username + "-Trojan\"\n    type: trojan\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    password: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      } else {
+        yamlContent = "proxies:\n  - name: \"" + user.username + "-SS\"\n    type: shadowsocks\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    password: " + uUuid + "\n    cipher: chacha20-ietf-poly1305";
+      }
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
@@ -110,7 +126,7 @@ export default {
       let rawName = body.username ? body.username.trim() : "";
       if (!rawName) return jsonResponse({ error: "نام کاربری الزامی است." }, 400);
 
-      const username = rawName.toUpperCase().startsWith("KINGAMIR_") ? rawName : "KINGAMIR_" + rawName;
+      const username = rawName.toUpperCase().startsWith("KING_") ? rawName : "KING_" + rawName;
       const protocol = body.protocol || "VLESS";
       const port = body.port || "443";
       const traffic = body.traffic ? body.traffic + " GB" : "100 GB";
@@ -120,13 +136,11 @@ export default {
       const status = body.status || "active";
 
       if (body.id) {
-        // حالت ویرایش کاربر موجود
         await env.DB.prepare(
           "UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, adblock = ?, adult_block = ?, status = ? WHERE id = ?"
         ).bind(protocol, traffic, expire, port, adblock, adult_block, status, body.id).run();
         return jsonResponse({ success: true, message: "کاربر با موفقیت ویرایش شد." });
       } else {
-        // حالت ایجاد کاربر جدید
         const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
         if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
 
@@ -311,7 +325,7 @@ function getMasterDashboardHtml(host) {
   "                    </div>\n" +
   "                    <div class=\"form-section-title\">مشخصات کاربری</div>\n" +
   "                    <div class=\"form-group full\">\n" +
-  "                        <label>نام کاربری (پیش‌وند KINGAMIR_ خودکار اضافه می‌شود)</label>\n" +
+  "                        <label>نام کاربری (پیش‌وند KING_ خودکار اضافه می‌شود)</label>\n" +
   "                        <input type=\"text\" id=\"f-username\" required placeholder=\"مثال: ali یا user1\">\n" +
   "                    </div>\n" +
   "                    <div class=\"form-section-title\">حجم و زمان انقضا</div>\n" +
