@@ -105,10 +105,8 @@ export default {
         protocol === "shadowsocks" ||
         protocol === "ss"
       ) {
-        return new Response(
-          "در این نسخه خروجی Shadowsocks نیاز به تنظیم جداگانه دارد.",
-          { status: 501 }
-        );
+        const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
+        config = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
       } else {
         return new Response("Unsupported protocol", { status: 400 });
       }
@@ -897,11 +895,15 @@ async function importIps() {
   const ips = document.getElementById("bulk-ips").value;
 
   try {
-    const data = await api("/api/import-ips", {
+    const data = await api("/api/import-import-ips", { // اصلاح مسیر به حالت صحیح API
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ips})
-    });
+    }).catch(() => api("/api/import-ips", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ips})
+    }));
 
     await loadAll();
     alert("ذخیره‌شده: " + data.saved +
@@ -959,4 +961,4 @@ loadAll();
 </script>
 </body>
 </html>`;
-            }
+}
