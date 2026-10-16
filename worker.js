@@ -117,18 +117,28 @@ export default {
       const expire = body.expire ? body.expire + " روز" : "30 روز";
       const adblock = body.adblock || "on";
       const adult_block = body.adult_block || "on";
+      const status = body.status || "active";
 
-      const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
-      if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
+      if (body.id) {
+        // حالت ویرایش کاربر موجود
+        await env.DB.prepare(
+          "UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, adblock = ?, adult_block = ?, status = ? WHERE id = ?"
+        ).bind(protocol, traffic, expire, port, adblock, adult_block, status, body.id).run();
+        return jsonResponse({ success: true, message: "کاربر با موفقیت ویرایش شد." });
+      } else {
+        // حالت ایجاد کاربر جدید
+        const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
+        if (existing) return jsonResponse({ error: "این نام کاربری قبلاً ثبت شده است." }, 400);
 
-      const id = "usr_" + Date.now();
-      const uuid = generateUUID();
+        const id = "usr_" + Date.now();
+        const uuid = generateUUID();
 
-      await env.DB.prepare(
-        "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, 'active')"
-      ).bind(id, username, uuid, protocol, traffic, expire, port, adblock, adult_block).run();
+        await env.DB.prepare(
+          "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', ?, ?, ?)"
+        ).bind(id, username, uuid, protocol, traffic, expire, port, adblock, adult_block, status).run();
 
-      return jsonResponse({ success: true, message: "کاربر ثبت شد." });
+        return jsonResponse({ success: true, message: "کاربر ثبت شد." });
+      }
     }
 
     if (path.startsWith("/api/users/") && method === "DELETE") {
@@ -205,7 +215,9 @@ function getMasterDashboardHtml(host) {
   "        .icon-btn { width: 34px; height: 34px; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 9px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 14px; }\n" +
   "        .icon-btn.del:hover { background: rgba(239, 68, 68, 0.2); color: var(--danger); border-color: var(--danger); }\n" +
   "        .icon-btn.copy:hover { border-color: var(--gold); color: var(--gold); }\n" +
+  "        .icon-btn.edit:hover { border-color: var(--vless); color: var(--vless); }\n" +
   "        .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--success); padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3); }\n" +
+  "        .badge-disabled { background: rgba(239, 68, 68, 0.15); color: var(--danger); padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: bold; border: 1px solid rgba(239, 68, 68, 0.3); }\n" +
   "        .username-title { font-size: 16px; font-weight: 900; color: white; }\n" +
   "        .progress-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color); }\n" +
   "        .prog-item label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }\n" +
@@ -271,10 +283,11 @@ function getMasterDashboardHtml(host) {
   "        <div class=\"modal\" id=\"userModal\">\n" +
   "            <div class=\"modal-content\">\n" +
   "                <div class=\"modal-header\">\n" +
-  "                    <div class=\"modal-title\">ایجاد اشتراک جدید</div>\n" +
+  "                    <div class=\"modal-title\" id=\"modal-main-title\">ایجاد اشتراک جدید</div>\n" +
   "                    <button class=\"close-btn\" onclick=\"closeModal()\">&times;</button>\n" +
   "                </div>\n" +
   "                <form id=\"user-form\">\n" +
+  "                    <input type=\"hidden\" id=\"f-edit-id\">\n" +
   "                    <div class=\"form-section-title\">انتخاب پروتکل و پورت</div>\n" +
   "                    <div class=\"form-row-inputs\">\n" +
   "                        <div class=\"form-group\">\n" +
@@ -312,7 +325,14 @@ function getMasterDashboardHtml(host) {
   "                            <input type=\"number\" id=\"f-expire\" value=\"30\" required>\n" +
   "                        </div>\n" +
   "                    </div>\n" +
-  "                    <div class=\"form-section-title\">تنظیمات امنیتی و مسدودسازی</div>\n" +
+  "                    <div class=\"form-section-title\">تنظیمات امنیتی و وضعیت</div>\n" +
+  "                    <div class=\"form-group\">\n" +
+  "                        <label>وضعیت حساب</label>\n" +
+  "                        <select id=\"f-status\">\n" +
+  "                            <option value=\"active\">فعال</option>\n" +
+  "                            <option value=\"disabled\">غیرفعال</option>\n" +
+  "                        </select>\n" +
+  "                    </div>\n" +
   "                    <div class=\"toggle-row\">\n" +
   "                        <span style=\"font-size: 12px; font-weight: 700;\">مسدودسازی تبلیغات (AdBlock)</span>\n" +
   "                        <input type=\"checkbox\" id=\"f-adblock\" checked style=\"width: 18px; height: 18px; accent-color: var(--gold);\">\n" +
@@ -323,7 +343,7 @@ function getMasterDashboardHtml(host) {
   "                    </div>\n" +
   "                    <div class=\"modal-footer\">\n" +
   "                        <button type=\"button\" class=\"btn-outline\" onclick=\"closeModal()\" style=\"flex: 1;\">انصراف</button>\n" +
-  "                        <button type=\"submit\" class=\"btn-gold\" style=\"flex: 2; justify-content: center;\">ثبت در دیتابیس</button>\n" +
+  "                        <button type=\"submit\" class=\"btn-gold\" style=\"flex: 2; justify-content: center;\">ذخیره در دیتابیس</button>\n" +
   "                    </div>\n" +
   "                </form>\n" +
   "            </div>\n" +
@@ -381,6 +401,8 @@ function getMasterDashboardHtml(host) {
   "                if(u.protocol === 'Trojan') pClass = 'p-trojan';\n" +
   "                if(u.protocol === 'Shadowsocks') pClass = 'p-ss';\n" +
   "                const userPort = u.port || '443';\n" +
+  "                const isAct = u.status !== 'disabled';\n" +
+  "                const badgeHtml = isAct ? '<span class=\"badge-active\">● فعال</span>' : '<span class=\"badge-disabled\">● غیرفعال</span>';\n" +
   "                const subUrl = 'https://' + currentHost + '/sub/' + u.username;\n" +
   "                const yamlUrl = 'https://' + currentHost + '/yaml/' + u.username;\n" +
   "                const statusUrl = 'https://' + currentHost + '/status/' + u.username;\n" +
@@ -388,10 +410,11 @@ function getMasterDashboardHtml(host) {
   "                    '<div class=\"card-top\">' +\n" +
   "                        '<div class=\"card-actions-left\">' +\n" +
   "                            '<div class=\"icon-btn del\" onclick=\"deleteUser(\\'' + u.id + '\\')\" title=\"حذف\">🗑️</div>' +\n" +
+  "                            '<div class=\"icon-btn edit\" onclick=\"openEditModal(\\'' + u.id + '\\')\" title=\"ویرایش\">✏️</div>' +\n" +
   "                            '<div class=\"icon-btn copy\" onclick=\"copyText(\\'' + subUrl + '\\')\" title=\"کپی ساب\">📋</div>' +\n" +
   "                        '</div>' +\n" +
   "                        '<div style=\"display:flex; align-items:center; gap:8px;\">' +\n" +
-  "                            '<span class=\"badge-active\">● فعال</span>' +\n" +
+  "                            badgeHtml +\n" +
   "                            '<span class=\"username-title\">' + u.username + '</span>' +\n" +
   "                        '</div>' +\n" +
   "                    '</div>' +\n" +
@@ -440,8 +463,27 @@ function getMasterDashboardHtml(host) {
   "            renderUsers(allUsersCache.filter(u => u.username.toLowerCase().includes(query)));\n" +
   "        }\n" +
   "        function openModal() {\n" +
-  "            document.getElementById('userModal').style.display = 'flex';\n" +
+  "            document.getElementById('modal-main-title').innerText = 'ایجاد اشتراک جدید';\n" +
+  "            document.getElementById('f-edit-id').value = '';\n" +
+  "            document.getElementById('f-username').disabled = false;\n" +
   "            document.getElementById('user-form').reset();\n" +
+  "            document.getElementById('userModal').style.display = 'flex';\n" +
+  "        }\n" +
+  "        function openEditModal(id) {\n" +
+  "            const u = allUsersCache.find(x => x.id === id);\n" +
+  "            if(!u) return;\n" +
+  "            document.getElementById('modal-main-title').innerText = 'ویرایش اشتراک: ' + u.username;\n" +
+  "            document.getElementById('f-edit-id').value = u.id;\n" +
+  "            document.getElementById('f-username').value = u.username;\n" +
+  "            document.getElementById('f-username').disabled = true;\n" +
+  "            document.getElementById('f-protocol').value = u.protocol || 'VLESS';\n" +
+  "            document.getElementById('f-port').value = u.port || '443';\n" +
+  "            document.getElementById('f-traffic').value = parseInt(u.traffic) || 100;\n" +
+  "            document.getElementById('f-expire').value = parseInt(u.expire) || 30;\n" +
+  "            document.getElementById('f-status').value = u.status || 'active';\n" +
+  "            document.getElementById('f-adblock').checked = u.adblock === 'on';\n" +
+  "            document.getElementById('f-adult').checked = u.adult_block === 'on';\n" +
+  "            document.getElementById('userModal').style.display = 'flex';\n" +
   "        }\n" +
   "        function closeModal() { document.getElementById('userModal').style.display = 'none'; }\n" +
   "        function openCleanIpModal() {\n" +
@@ -474,12 +516,15 @@ function getMasterDashboardHtml(host) {
   "        }\n" +
   "        document.getElementById('user-form').addEventListener('submit', async (e) => {\n" +
   "            e.preventDefault();\n" +
+  "            const editId = document.getElementById('f-edit-id').value;\n" +
   "            const payload = {\n" +
+  "                id: editId ? editId : undefined,\n" +
   "                username: document.getElementById('f-username').value,\n" +
   "                protocol: document.getElementById('f-protocol').value,\n" +
   "                port: document.getElementById('f-port').value,\n" +
   "                traffic: document.getElementById('f-traffic').value,\n" +
   "                expire: document.getElementById('f-expire').value,\n" +
+  "                status: document.getElementById('f-status').value,\n" +
   "                adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',\n" +
   "                adult_block: document.getElementById('f-adult').checked ? 'on' : 'off'\n" +
   "            };\n" +
@@ -492,7 +537,7 @@ function getMasterDashboardHtml(host) {
   "            if(data.success) {\n" +
   "                closeModal();\n" +
   "                loadUsers();\n" +
-  "            } else { alert(data.error || 'خطا در ثبت کاربر'); }\n" +
+  "            } else { alert(data.error || 'خطا در ذخیره اطلاعات'); }\n" +
   "        });\n" +
   "        async function deleteUser(id) {\n" +
   "            if(!confirm('آیا از حذف این کاربر مطمئن هستید؟')) return;\n" +
