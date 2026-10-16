@@ -22,7 +22,6 @@ export default {
       }
     } catch(e) {}
 
-    // ساب‌سکریپشن چندگانه با پشتیبانی از پورت انتخابی کاربر
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -558,4 +557,4 @@ function getMasterDashboardHtml(host) {
         loadUsers();
     </script>
 </body>
-</html>`;
+</html>
