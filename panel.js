@@ -9,12 +9,11 @@ export default {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });
     }
 
-    // ایجاد جدول تنظیمات اگر وجود نداشته باشد
     try {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, uuid TEXT, protocol TEXT, traffic TEXT, expire TEXT, port TEXT, tls TEXT, adblock TEXT, adult_block TEXT, status TEXT)`).run();
     } catch(e) {}
 
-    // گرفتن آی‌پی تمیز فعال از دیتابیس (اگر ست شده باشد)
     let activeCleanIp = host;
     try {
       const savedIp = await env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first();
@@ -23,7 +22,6 @@ export default {
       }
     } catch(e) {}
 
-    // ساب متنی Base64
     if (path.startsWith("/sub/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -34,12 +32,12 @@ export default {
       const uUuid = user.uuid;
 
       if (user.protocol === "VLESS") {
-        link = `vless://${uUuid}@${activeCleanIp}:443?encryption=none&security=tls&sni=${host}&fp=chrome&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = "vless://" + uUuid + "@" + activeCleanIp + ":443?encryption=none&security=tls&sni=" + host + "&fp=chrome&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
       } else if (user.protocol === "Trojan") {
-        link = `trojan://${uUuid}@${activeCleanIp}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+        link = "trojan://" + uUuid + "@" + activeCleanIp + ":443?security=tls&sni=" + host + "&type=ws&host=" + host + "&path=%2F%3Fed%3D2048#" + encodedName;
       } else {
-        const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
-        link = `ss://${auth}@${activeCleanIp}:443#${encodedName}`;
+        const auth = btoa("chacha20-ietf-poly1305:" + uUuid);
+        link = "ss://" + auth + "@" + activeCleanIp + ":443#" + encodedName;
       }
 
       const utf8Encoder = new TextEncoder();
@@ -50,35 +48,19 @@ export default {
       });
     }
 
-    // ساب YAML برای کلش
     if (path.startsWith("/yaml/") && method === "GET") {
       const username = path.split("/")[2];
       const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
       if (!user) return new Response("User not found", { status: 404 });
 
       const uUuid = user.uuid;
-      const yamlContent = `proxies:
-  - name: "${user.username}-${user.protocol}"
-    type: ${user.protocol.toLowerCase()}
-    server: ${activeCleanIp}
-    port: 443
-    uuid: ${uUuid}
-    network: ws
-    tls: true
-    sni: ${host}
-    skip-cert-verify: true
-    client-fingerprint: chrome
-    ws-opts:
-      path: "/?ed=2048"
-      headers:
-        Host: ${host}`;
+      const yamlContent = "proxies:\n  - name: \"" + user.username + "-" + user.protocol + "\"\n    type: " + user.protocol.toLowerCase() + "\n    server: " + activeCleanIp + "\n    port: 443\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
       });
     }
 
-    // صفحه وضعیت کاربر
     if (path.startsWith("/status/") && method === "GET") {
       const username = path.split("/")[2];
       return new Response(generateUserStatusHtml(username, host), {
@@ -86,14 +68,13 @@ export default {
       });
     }
 
-    // API لیست کاربران، آی‌پی فعال و لیست آی‌پی‌های ذخیره شده
     if (path === "/api/users" && method === "GET") {
-      const { results } = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
+      const { results } = await env.DB.prepare("SELECT * FROM users").all();
       
       let ipsList = [];
       try {
         const ipRows = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
-        if(ipRows.results) {
+        if(ipRows && ipRows.results) {
           ipsList = ipRows.results.map(r => ({ id: r.key, ip: r.value }));
         }
       } catch(e) {}
@@ -110,30 +91,25 @@ export default {
       });
     }
 
-    // API ذخیره آی‌پی تمیز
     if (path === "/api/set-clean-ip" && method === "POST") {
       const body = await request.json();
       const ip = body.ip ? body.ip.trim() : "";
       if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
 
-      // ذخیره به عنوان آی‌پی فعال اصلی
-      await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)`).bind(ip).run();
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
       
-      // ذخیره در لیست آرشیو آی‌پی‌ها با کلیک منحصر به فرد
-      const ipKey = 'ip_' + ip.replace(/[\.\:]/g, '_');
-      await env.DB.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).bind(ipKey, ip).run();
+      const ipKey = "ip_" + ip.replace(/[\.\:]/g, "_");
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(ipKey, ip).run();
 
-      return jsonResponse({ success: true, message: "آی‌پی تمیز با موفقیت ست شد." });
+      return jsonResponse({ success: true, message: "آی‌پی با موفقیت ثبت شد." });
     }
 
-    // API حذف آی‌پی از مخزن
     if (path.startsWith("/api/delete-ip/") && method === "DELETE") {
       const ipKey = path.split("/")[3];
       await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(ipKey).run();
       return jsonResponse({ success: true });
     }
 
-    // API ایجاد کاربر جدید
     if (path === "/api/users" && method === "POST") {
       const body = await request.json();
       let rawName = body.username ? body.username.trim() : "";
@@ -153,14 +129,12 @@ export default {
       const uuid = generateUUID();
 
       await env.DB.prepare(
-        `INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) 
-         VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', ?, ?, 'active')`
+        "INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status) VALUES (?, ?, ?, ?, ?, ?, '443', 'TLS 1.3', ?, ?, 'active')"
       ).bind(id, username, uuid, protocol, traffic, expire, adblock, adult_block).run();
 
-      return jsonResponse({ success: true, message: "کاربر با موفقیت ثبت شد." });
+      return jsonResponse({ success: true, message: "کاربر ثبت شد." });
     }
 
-    // API حذف کاربر
     if (path.startsWith("/api/users/") && method === "DELETE") {
       const id = path.split("/")[3];
       await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
@@ -185,7 +159,7 @@ function generateUUID() {
 }
 
 function generateUserStatusHtml(username, host) {
-  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل (KingAmir)</p><p style="color:#9ca3af;font-size:12px;">سرور اصلی: ${host}</p></div></body></html>`;
+  return "<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charset=\"UTF-8\"><title>وضعیت " + username + "</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class=\"card\"><h2 style=\"color:#f59e0b;\">" + username + "</h2><p style=\"color:#10b981;font-weight:bold;\">● اشتراک فعال و متصل (KingAmir)</p><p style=\"color:#9ca3af;font-size:12px;\">سرور اصلی: " + host + "</p></div></body></html>";
 }
 
 function getMasterDashboardHtml(host) {
@@ -356,7 +330,7 @@ function getMasterDashboardHtml(host) {
             </div>
         </div>
 
-        <!-- مدال مدیریت و مخزن آی‌پی تمیز -->
+        <!-- مدال مدیریت مخزن آی‌پی -->
         <div class="modal" id="cleanIpModal">
             <div class="modal-content">
                 <div class="modal-header">
@@ -418,46 +392,41 @@ function getMasterDashboardHtml(host) {
                 if(u.protocol === 'Trojan') pClass = 'p-trojan';
                 if(u.protocol === 'Shadowsocks') pClass = 'p-ss';
 
-                const subUrl = \`https://\${currentHost}/sub/\${u.username}\`;
-                const yamlUrl = \`https://\${currentHost}/yaml/\${u.username}\`;
-                const statusUrl = \`https://\${currentHost}/status/\${u.username}\`;
+                const subUrl = 'https://' + currentHost + '/sub/' + u.username;
+                const yamlUrl = 'https://' + currentHost + '/yaml/' + u.username;
+                const statusUrl = 'https://' + currentHost + '/status/' + u.username;
 
-                container.innerHTML += \`
-                    <div class="user-card">
-                        <div class="card-top">
-                            <div class="card-actions-left">
-                                <div class="icon-btn del" onclick="deleteUser('\${u.id}')" title="حذف">🗑️</div>
-                                <div class="icon-btn copy" onclick="copyText('\${subUrl}')" title="کپی ساب">📋</div>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <span class="badge-active">● فعال</span>
-                                <span class="username-title">\${u.username}</span>
-                            </div>
-                        </div>
-
-                        <div class="progress-grid">
-                            <div class="prog-item">
-                                <label><span>حجم</span> <span style="color:white;">\${u.traffic}</span></label>
-                                <div class="prog-bar"><div class="prog-fill"></div></div>
-                            </div>
-                            <div class="prog-item">
-                                <label><span>زمان</span> <span style="color:white;">\${u.expire}</span></label>
-                                <div class="prog-bar"><div class="prog-fill" style="background:var(--gold);"></div></div>
-                            </div>
-                        </div>
-
-                        <div class="details-grid">
-                            <div>پورت: <span style="color:white; font-family:monospace;">443</span></div>
-                            <div>پروتکل: <span class="proto-badge \${pClass}">\${u.protocol}</span></div>
-                        </div>
-
-                        <div class="card-bottom-btns">
-                            <a href="\${statusUrl}" target="_blank" class="sub-btn green">🔗 صفحه وضعیت</a>
-                            <a href="\${subUrl}" target="_blank" class="sub-btn">📄 ساب متنی</a>
-                            <a href="\${yamlUrl}" target="_blank" class="sub-btn purple">⚡ ساب YAML</a>
-                        </div>
-                    </div>
-                \`;
+                container.innerHTML += '<div class="user-card">' +
+                    '<div class="card-top">' +
+                        '<div class="card-actions-left">' +
+                            '<div class="icon-btn del" onclick="deleteUser(\\'' + u.id + '\\')" title="حذف">🗑️</div>' +
+                            '<div class="icon-btn copy" onclick="copyText(\\'' + subUrl + '\\')" title="کپی ساب">📋</div>' +
+                        '</div>' +
+                        '<div style="display:flex; align-items:center; gap:8px;">' +
+                            '<span class="badge-active">● فعال</span>' +
+                            '<span class="username-title">' + u.username + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="progress-grid">' +
+                        '<div class="prog-item">' +
+                            '<label><span>حجم</span> <span style="color:white;">' + u.traffic + '</span></label>' +
+                            '<div class="prog-bar"><div class="prog-fill"></div></div>' +
+                        '</div>' +
+                        '<div class="prog-item">' +
+                            '<label><span>زمان</span> <span style="color:white;">' + u.expire + '</span></label>' +
+                            '<div class="prog-bar"><div class="prog-fill" style="background:var(--gold);"></div></div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="details-grid">' +
+                        '<div>پورت: <span style="color:white; font-family:monospace;">443</span></div>' +
+                        '<div>پروتکل: <span class="proto-badge ' + pClass + '">' + u.protocol + '</span></div>' +
+                    '</div>' +
+                    '<div class="card-bottom-btns">' +
+                        '<a href="' + statusUrl + '" target="_blank" class="sub-btn green">🔗 صفحه وضعیت</a>' +
+                        '<a href="' + subUrl + '" target="_blank" class="sub-btn">📄 ساب متنی</a>' +
+                        '<a href="' + yamlUrl + '" target="_blank" class="sub-btn purple">⚡ ساب YAML</a>' +
+                    '</div>' +
+                '</div>';
             });
         }
 
@@ -471,12 +440,10 @@ function getMasterDashboardHtml(host) {
             }
 
             savedIpsCache.forEach(item => {
-                container.innerHTML += \`
-                    <div class="ip-item-row">
-                        <span>\${item.ip}</span>
-                        <button class="del-ip-btn" onclick="deleteSavedIp('\${item.id}')">حذف</button>
-                    </div>
-                \`;
+                container.innerHTML += '<div class="ip-item-row">' +
+                    '<span>' + item.ip + '</span>' +
+                    '<button class="del-ip-btn" onclick="deleteSavedIp(\\'' + item.id + '\\')">حذف</button>' +
+                '</div>';
             });
         }
 
@@ -523,7 +490,7 @@ function getMasterDashboardHtml(host) {
             const data = await res.json();
             if(data.success) {
                 document.getElementById('ip-input-field').value = '';
-                alert('آی‌پی تمیز با موفقیت ثبت و روی کانفینگ‌ها اعمال شد!');
+                alert('آی‌پی با موفقیت ثبت و اعمال شد!');
                 loadUsers();
             } else {
                 alert('خطا در ثبت آی‌پی');
@@ -576,3 +543,4 @@ function getMasterDashboardHtml(host) {
     </script>
 </body>
 </html>`;
+}
