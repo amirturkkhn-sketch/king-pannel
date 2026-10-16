@@ -37,9 +37,7 @@ export default {
       const ssLink = "ss://" + auth + "@" + activeCleanIp + ":" + uPort + "#" + encodedName + "-SS";
 
       const allConfigs = vlessLink + "\n" + trojanLink + "\n" + ssLink;
-
-      const utf8Encoder = new TextEncoder();
-      const encodedBase64 = btoa(String.fromCharCode(...utf8Encoder.encode(allConfigs)));
+      const encodedBase64 = btoa(String.fromCharCode(...new TextEncoder().encode(allConfigs)));
 
       return new Response(encodedBase64, {
         headers: { "Content-Type": "text/plain;charset=UTF-8", "Cache-Control": "no-store" }
@@ -53,7 +51,21 @@ export default {
 
       const uUuid = user.uuid;
       const uPort = user.port || "443";
-      const yamlContent = "proxies:\n  - name: \"" + user.username + "-VLESS\"\n    type: vless\n    server: " + activeCleanIp + "\n    port: " + uPort + "\n    uuid: " + uUuid + "\n    network: ws\n    tls: true\n    sni: " + host + "\n    skip-cert-verify: true\n    client-fingerprint: chrome\n    ws-opts:\n      path: \"/?ed=2048\"\n      headers:\n        Host: " + host;
+      const yamlContent = `proxies:
+  - name: "${user.username}-VLESS"
+    type: vless
+    server: ${activeCleanIp}
+    port: ${uPort}
+    uuid: ${uUuid}
+    network: ws
+    tls: true
+    sni: ${host}
+    skip-cert-verify: true
+    client-fingerprint: chrome
+    ws-opts:
+      path: "/?ed=2048"
+      headers:
+        Host: ${host}`;
 
       return new Response(yamlContent, {
         headers: { "Content-Type": "text/yaml;charset=UTF-8", "Cache-Control": "no-store" }
@@ -69,7 +81,6 @@ export default {
 
     if (path === "/api/users" && method === "GET") {
       const { results } = await env.DB.prepare("SELECT * FROM users").all();
-      
       let ipsList = [];
       try {
         const ipRows = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
@@ -96,7 +107,6 @@ export default {
       if (!ip) return jsonResponse({ error: "آی‌پی نامعتبر است." }, 400);
 
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
-      
       const ipKey = "ip_" + ip.replace(/[\.\:]/g, "_");
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(ipKey, ip).run();
 
@@ -159,7 +169,7 @@ function generateUUID() {
 }
 
 function generateUserStatusHtml(username, host) {
-  return "<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charset=\"UTF-8\"><title>وضعیت " + username + "</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class=\"card\"><h2 style=\"color:#f59e0b;\">" + username + "</h2><p style=\"color:#10b981;font-weight:bold;\">● اشتراک فعال و متصل (KingAmir)</p><p style=\"color:#9ca3af;font-size:12px;\">سرور اصلی: " + host + "</p></div></body></html>";
+  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>وضعیت ${username}</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.card{background:#0a0e17;border:1px solid rgba(245,158,11,0.4);padding:35px;border-radius:20px;text-align:center;width:380px;}</style></head><body><div class="card"><h2 style="color:#f59e0b;">${username}</h2><p style="color:#10b981;font-weight:bold;">● اشتراک فعال و متصل (KingAmir)</p><p style="color:#9ca3af;font-size:12px;">سرور اصلی: ${host}</p></div></body></html>`;
 }
 
 function getMasterDashboardHtml(host) {
@@ -557,4 +567,5 @@ function getMasterDashboardHtml(host) {
         loadUsers();
     </script>
 </body>
-</html>
+</html>`;
+}
