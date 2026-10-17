@@ -37,7 +37,7 @@ export default {
     }
 
     // -----------------------------------------------------
-    // SECURE ADMIN AUTHENTICATION (WITH CUSTOM STYLIZED LOGIN PAGE)
+    // SECURE ADMIN AUTHENTICATION (STYLIZED LOGIN PAGE)
     // -----------------------------------------------------
     if (path.startsWith("/api/") || path === "/") {
       const adminUser = env.ADMIN_USER;
@@ -111,7 +111,7 @@ export default {
     const activeCleanIp = activeRow?.value || host;
 
     // -----------------------------------------------------
-    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS
+    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS (WITH FRAGMENT INJECTOR)
     // -----------------------------------------------------
     if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {
       const username = decodeURIComponent(path.split("/")[2] || "");
@@ -142,6 +142,9 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
+      // اضافه شدن پارامترهای فرگنت (تکه‌تکه کردن پکت‌ها برای دورزدن فیلترینگ)
+      const fragmentParam = `&packet=tls&length=100-200&interval=10-20`;
+
       if (protocol === "vless") {
         config =
           `vless://${user.uuid}@${activeCleanIp}:${port}` +
@@ -149,7 +152,9 @@ export default {
           `&sni=${encodeURIComponent(host)}` +
           `&fp=chrome&type=ws` +
           `&host=${encodeURIComponent(host)}` +
-          `&path=%2F%3Fed%3D2048#${name}`;
+          `&path=%2F%3Fed%3D2048` +
+          fragmentParam +
+          `#${name}`;
       } else if (protocol === "trojan") {
         config =
           `trojan://${user.uuid}@${activeCleanIp}:${port}` +
@@ -157,7 +162,9 @@ export default {
           `&sni=${encodeURIComponent(host)}` +
           `&type=ws` +
           `&host=${encodeURIComponent(host)}` +
-          `&path=%2F%3Fed%3D2048#${name}`;
+          `&path=%2F%3Fed%3D2048` +
+          fragmentParam +
+          `#${name}`;
       } else if (protocol === "shadowsocks" || protocol === "ss") {
         const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
         config = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
@@ -181,7 +188,11 @@ export default {
           "    ws-opts:",
           '      path: "/?ed=2048"',
           "      headers:",
-          `        Host: "${yamlEscape(host)}"`
+          `        Host: "${yamlEscape(host)}"`,
+          "    client-fingerprint: chrome",
+          "    fragment: tls",
+          "    fragment-length: 100-200",
+          "    fragment-interval: 10-20"
         ].filter(Boolean).join("\n");
 
         return new Response(yaml, {
