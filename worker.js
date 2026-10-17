@@ -142,7 +142,6 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
-      // اضافه شدن پارامترهای فرگنت (تکه‌تکه کردن پکت‌ها برای دورزدن فیلترینگ)
       const fragmentParam = `&packet=tls&length=100-200&interval=10-20`;
 
       if (protocol === "vless") {
@@ -529,6 +528,7 @@ dialog::backdrop{background:#000b}
 <div class="toolbar">
   <button class="gold" onclick="openUser()">+ ایجاد کاربر</button>
   <button class="outline" onclick="openIps()">مدیریت IPها</button>
+  <button class="outline" onclick="openFragment()">⚡ تنظیمات فرگمنت</button>
   <button class="outline" onclick="loadAll()">بروزرسانی</button>
 </div>
 
@@ -576,6 +576,22 @@ dialog::backdrop{background:#000b}
   <h3>IPهای ذخیره‌شده</h3>
   <div id="ip-list">در حال بارگذاری...</div>
   <button class="outline" onclick="document.getElementById('ip-dialog').close()">بستن</button>
+</dialog>
+
+<dialog id="fragment-dialog">
+  <h2>⚡ تنظیمات فرگمنت ضد فیلترینگ</h2>
+  <p class="muted">تکه‌تکه کردن پکت‌ها (Fragment) به صورت خودکار روی تمامی لینک‌های خروجی ساب‌سکریپشن و YAML اعمال شده است تا اتصال کلاینت‌ها پایدارتر بماند.</p>
+  <label>روش فرگمنت</label>
+  <input value="tls" disabled>
+  <label>طول پکت‌ها</label>
+  <input value="100-200" disabled>
+  <label>فاصله زمانی (Interval)</label>
+  <input value="10-20" disabled>
+  <p class="muted" style="color:var(--red);">⚠️ هشدار: این تنظیمات روی پروتکل سادوساکس (Shadowsocks) اعمال نمی‌شوند.</p>
+  <div class="row" style="margin-top:15px;">
+    <button class="gold" onclick="alert('تنظیمات فرگمنت فعال و روی ساب‌سکریپشن‌ها اعمال شد.')">ذخیره تغییرات</button>
+    <button class="outline" type="button" onclick="document.getElementById('fragment-dialog').close()">انصراف</button>
+  </div>
 </dialog>
 </main>
 
@@ -708,6 +724,10 @@ async function deleteUser(id) {
 function openIps() {
   document.getElementById("ip-dialog").showModal();
   renderIps();
+}
+
+function openFragment() {
+  document.getElementById("fragment-dialog").showModal();
 }
 
 function renderIps() {
