@@ -103,15 +103,39 @@ export default {
       }
     }
 
-    const activeRow = await env.DB
-      .prepare("SELECT value FROM settings WHERE key = 'clean_ip'")
-      .first()
-      .catch(() => null);
+    // دریافت تنظیمات Clean IP و ECH از دیتابیس
+    const [activeRow, echEnabledRow, echValueRow] = await Promise.all([
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first().catch(() => null),
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_enabled'").first().catch(() => null),
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_value'").first().catch(() => null)
+    ]);
 
     const activeCleanIp = activeRow?.value || host;
+    const echEnabled = echEnabledRow?.value === "true";
+    const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";
 
     // -----------------------------------------------------
-    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS (WITH FRAGMENT INJECTOR)
+    // API: SAVE ECH SETTINGS
+    // -----------------------------------------------------
+    if (path === "/api/set-ech" && method === "POST") {
+      const body = await readJson(request);
+      if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);
+
+      const enabled = body.enabled ? "true" : "false";
+      const value = String(body.value || "").trim();
+
+      if (enabled === "true" && !value) {
+        return json({ error: "مقدار ECH نمی‌تواند خالی باشد." }, 400);
+      }
+
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_enabled', ?)").bind(enabled).run();
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_value', ?)").bind(value).run();
+
+      return json({ success: true, message: "تنظیمات ECH با موفقیت ذخیره شد." });
+    }
+
+    // -----------------------------------------------------
+    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS (WITH ECH & FRAGMENT)
     // -----------------------------------------------------
     if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {
       const username = decodeURIComponent(path.split("/")[2] || "");
@@ -143,6 +167,10 @@ export default {
       let config = "";
 
       const fragmentParam = `&packet=tls&length=100-200&interval=10-20`;
+      // پارامتر ECH تنها در صورت فعال بودن و پشتیبانی پروتکل اضافه می‌شود
+      const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss") 
+        ? `&ech=${encodeURIComponent(echValue)}` 
+        : "";
 
       if (protocol === "vless") {
         config =
@@ -153,6 +181,7 @@ export default {
           `&host=${encodeURIComponent(host)}` +
           `&path=%2F%3Fed%3D2048` +
           fragmentParam +
+          echParam +
           `#${name}`;
       } else if (protocol === "trojan") {
         config =
@@ -163,6 +192,7 @@ export default {
           `&host=${encodeURIComponent(host)}` +
           `&path=%2F%3Fed%3D2048` +
           fragmentParam +
+          echParam +
           `#${name}`;
       } else if (protocol === "shadowsocks" || protocol === "ss") {
         const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
@@ -184,6 +214,7 @@ export default {
           "    tls: true",
           `    servername: "${yamlEscape(host)}"`,
           "    skip-cert-verify: false",
+          (echEnabled && protocol !== "shadowsocks") ? `    ech-config: "${yamlEscape(echValue)}"` : "",
           "    ws-opts:",
           '      path: "/?ed=2048"',
           "      headers:",
@@ -244,7 +275,7 @@ export default {
     }
 
     // -----------------------------------------------------
-    // GET USERS AND SAVED IPS
+    // GET USERS, SAVED IPS & SETTINGS
     // -----------------------------------------------------
     if (path === "/api/users" && method === "GET") {
       const usersResult = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
@@ -255,6 +286,10 @@ export default {
         users: usersResult.results || [],
         savedIps: (ipsResult.results || []).map(row => ({ id: row.key, ip: row.value })),
         activeCleanIp,
+        echSettings: {
+          enabled: echEnabled,
+          value: echValue
+        },
         metrics: {
           total: (usersResult.results || []).length,
           active: (usersResult.results || []).filter(u => u.status === 'active').length
@@ -485,7 +520,7 @@ function dashboard(host) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KINGAMIR PANEL</title>
 <style>
-:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444}
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6}
 *{box-sizing:border-box}
 body{margin:0;padding:15px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
 main{max-width:1100px;margin:auto}
@@ -510,6 +545,19 @@ button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-
 .ip{padding:10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
 dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--gold);border-radius:15px}
 dialog::backdrop{background:#000b}
+
+/* استایل‌های کارت ECH مشابه مرجع */
+.ech-card { background: #07111e; border: 1px solid #132238; border-radius: 14px; padding: 15px; margin-bottom: 15px; }
+.ech-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #1e2634; transition: .3s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--green); }
+input:checked + .slider:before { transform: translateX(22px); }
+.ech-body { margin-top: 15px; display: none; border-top: 1px solid var(--border); padding-top: 15px; }
+.ech-body.show { display: block; }
+.warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); padding: 10px; border-radius: 8px; font-size: 12px; color: #fca5a5; display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -523,6 +571,36 @@ dialog::backdrop{background:#000b}
   <div class="stat">تعداد کاربران<b id="total">0</b></div>
   <div class="stat">کاربران فعال<b id="active">0</b></div>
   <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>
+</section>
+
+<!-- بخش تنظیمات ECH (مشابه تصویر پیوست‌شده) -->
+<section class="ech-card">
+  <div class="ech-header" onclick="toggleEchBody()">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="color:var(--purple);font-size:18px;">🔒</span>
+      <div>
+        <h2 style="margin:0;color:var(--text);">تنظیمات ECH (Encrypted Client Hello)</h2>
+        <div class="muted">رمزنگاری نام سرور در دسترشنی TLS برای دورزدن مسدودسازی SNI</div>
+      </div>
+    </div>
+    <label class="switch" onclick="event.stopPropagation()">
+      <input type="checkbox" id="ech-toggle" onchange="saveEchSettings(true)">
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div class="ech-body" id="ech-body-content">
+    <label>مقدار ECH (تنظیمات رمزنگاری Hello)</label>
+    <input id="ech-value-input" placeholder="cloudflare-ech.com+udp://1.1.1.1" value="cloudflare-ech.com+udp://1.1.1.1">
+    
+    <div class="warning-box">
+      <span>⚠️ هشدار: این تنظیمات روی پروتکل سادوساکس (Shadowsocks) یا کلاینت‌های فاقد پشتیبانی از ECH اعمال نمی‌شوند و تضمینی برای اتصال صددرصدی بدون سازگاری کلاینت نیست.</span>
+    </div>
+
+    <div class="row" style="margin-top:15px;">
+      <button class="gold" onclick="saveEchSettings()">ذخیره تغییرات ECH</button>
+      <button class="outline" onclick="toggleEchBody()">انصراف</button>
+    </div>
+  </div>
 </section>
 
 <div class="toolbar">
@@ -580,17 +658,16 @@ dialog::backdrop{background:#000b}
 
 <dialog id="fragment-dialog">
   <h2>⚡ تنظیمات فرگمنت ضد فیلترینگ</h2>
-  <p class="muted">تکه‌تکه کردن پکت‌ها (Fragment) به صورت خودکار روی تمامی لینک‌های خروجی ساب‌سکریپشن و YAML اعمال شده است تا اتصال کلاینت‌ها پایدارتر بماند.</p>
+  <p class="muted">تکه‌تکه کردن پکت‌ها (Fragment) به صورت خودکار روی تمامی لینک‌های خروجی ساب‌سکریپشن و YAML اعمال شده است.</p>
   <label>روش فرگمنت</label>
   <input value="tls" disabled>
   <label>طول پکت‌ها</label>
   <input value="100-200" disabled>
   <label>فاصله زمانی (Interval)</label>
   <input value="10-20" disabled>
-  <p class="muted" style="color:var(--red);">⚠️ هشدار: این تنظیمات روی پروتکل سادوساکس (Shadowsocks) اعمال نمی‌شوند.</p>
+  <p class="muted" style="color:var(--red);">⚠️ هشدار: این تنظیمات روی پروتکل سادوساکس اعمال نمی‌شوند.</p>
   <div class="row" style="margin-top:15px;">
-    <button class="gold" onclick="alert('تنظیمات فرگمنت فعال و روی ساب‌سکریپشن‌ها اعمال شد.')">ذخیره تغییرات</button>
-    <button class="outline" type="button" onclick="document.getElementById('fragment-dialog').close()">انصراف</button>
+    <button class="gold" onclick="document.getElementById('fragment-dialog').close()">بستن</button>
   </div>
 </dialog>
 </main>
@@ -613,16 +690,47 @@ function esc(value) {
   })[c]);
 }
 
+function toggleEchBody() {
+  const body = document.getElementById("ech-body-content");
+  body.classList.toggle("show");
+}
+
+async function saveEchSettings(isToggleOnly = false) {
+  const enabled = document.getElementById("ech-toggle").checked;
+  const value = document.getElementById("ech-value-input").value.trim();
+
+  try {
+    const res = await api("/api/set-ech", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ enabled, value })
+    });
+    if (!isToggleOnly) {
+      alert(res.message || "تنظیمات ECH ذخیره شد.");
+      toggleEchBody();
+    }
+  } catch(e) {
+    alert("خطا در ذخیره ECH: " + e.message);
+  }
+}
+
 async function loadAll() {
   try {
     const data = await api("/api/users");
     usersCache = data.users || [];
     ipsCache = data.savedIps || [];
-    document.getElementById("active-ip").textContent =
-      "IP فعال: " + data.activeCleanIp;
+    
+    document.getElementById("active-ip").textContent = "IP فعال: " + data.activeCleanIp;
     document.getElementById("total").textContent = data.metrics.total;
     document.getElementById("active").textContent = data.metrics.active;
     document.getElementById("ip-total").textContent = ipsCache.length;
+
+    // بارگذاری مقادیر ECH
+    if (data.echSettings) {
+      document.getElementById("ech-toggle").checked = data.echSettings.enabled;
+      document.getElementById("ech-value-input").value = data.echSettings.value;
+    }
+
     renderUsers();
     renderIps();
   } catch(e) {
