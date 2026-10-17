@@ -226,7 +226,7 @@ export default {
     }
 
     // -----------------------------------------------------
-    // ADD OR EDIT USER
+    // ADD OR EDIT USER (قید پورت‌های امن کلودفلر)
     // -----------------------------------------------------
     if (path === "/api/users" && method === "POST") {
       const body = await readJson(request);
@@ -243,7 +243,7 @@ export default {
 
       const port = String(body.port || "443");
       if (!["443", "2053", "2083", "2087", "8443"].includes(port)) {
-        return json({ error: "پورت معتبر نیست." }, 400);
+        return json({ error: "پورت نامعتبر است. فقط پورت‌های پشتیبانی‌شده ابری مجاز هستند." }, 400);
       }
 
       const trafficNum = Number(body.traffic ?? 100);
@@ -293,12 +293,15 @@ export default {
     }
 
     // -----------------------------------------------------
-    // SET CLEAN IP
+    // SET CLEAN IP (قید ساختاری آی‌پی)
     // -----------------------------------------------------
     if (path === "/api/set-clean-ip" && method === "POST") {
       const body = await readJson(request);
       const ip = String(body?.ip || "").trim();
-      if (!isValidIp(ip)) return json({ error: "قالب IP معتبر نیست." }, 400);
+      
+      if (!isValidIp(ip)) {
+        return json({ error: "قالب IP معتبر نیست." }, 400);
+      }
 
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(makeIpKey(ip), ip).run();
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('clean_ip', ?)").bind(ip).run();
@@ -770,4 +773,4 @@ loadAll();
 </script>
 </body>
 </html>`;
-        }
+}
