@@ -37,7 +37,7 @@ export default {
       return json({ success: false, error: "خطای آماده‌سازی دیتابیس." }, 500);
     }
 
-    // احراز هویت ادمین با صفحه ورود شیک و مدرن
+    // احراز هویت ادمین با صفحه ورود شیک و مدرن برند KING PANEL
     if (path.startsWith("/api/") || path === "/") {
       const adminUser = env.ADMIN_USER;
       const adminPass = env.ADMIN_PASSWORD;
@@ -57,7 +57,7 @@ export default {
           <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1">
-          <title>ورود به پنل مدیریت ZEUS</title>
+          <title>ورود به پنل مدیریت KING PANEL</title>
           <style>
             :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--blue:#3b82f6;}
             body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}
@@ -69,7 +69,7 @@ export default {
           </head>
           <body>
             <div class="login-card">
-              <span class="badge">⚡ ZEUS MANAGEMENT PANEL ⚡</span>
+              <span class="badge">👑 KING PANEL MANAGEMENT 👑</span>
               <h1>خوش آمدید مدیریت عزیز</h1>
               <p>لطفاً برای دسترسی به پنل، احراز هویت نمایید.</p>
             </div>
@@ -79,7 +79,7 @@ export default {
           status: 401,
           headers: {
             "Content-Type": "text/html; charset=UTF-8",
-            "WWW-Authenticate": 'Basic realm="ZEUS PANEL"'
+            "WWW-Authenticate": 'Basic realm="KING PANEL"'
           }
         });
       }
@@ -232,7 +232,7 @@ export default {
         <html lang="fa" dir="rtl">
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>وضعیت اشتراک</title>
+        <title>وضعیت اشتراک - کینگ پنل</title>
         <body style="background:#030508;color:#fff;font-family:sans-serif;padding:30px">
           <main style="max-width:480px;margin:auto;background:#0a0e17;padding:25px;border-radius:18px;border:1px solid #1e2634">
             <h2 style="color:#f59e0b">${escapeHtml(user.username)}</h2>
@@ -243,7 +243,7 @@ export default {
       `);
     }
 
-    // API دریافت لیست کاربران و آمار
+    // API دریافت لیست کاربران و آمار سرور
     if (path === "/api/users" && method === "GET") {
       const usersResult = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
       const ipsResult = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'ip_%'").all();
@@ -467,7 +467,7 @@ function dashboard(host) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KING PANEL - Zeus Dashboard</title>
+<title>KING PANEL - Zeus Edition</title>
 <style>
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;--blue:#3b82f6;--teal:#14b8a6}
 *{box-sizing:border-box}
@@ -479,13 +479,12 @@ h1{font-size:22px;color:var(--gold);margin:0;display:flex;align-items:center;gap
 h2{font-size:16px;margin:0 0 10px 0}
 .muted{color:var(--muted);font-size:12px}
 
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:16px}
 .stat{background:var(--card);border:1px solid var(--border);padding:18px;border-radius:14px;position:relative;overflow:hidden}
 .stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--blue)}
 .stat:nth-child(2)::after{background:var(--teal)}
-.stat:nth-child(3)::after{background:var(--red)}
-.stat:nth-child(4)::after{background:var(--purple)}
-.stat b{display:block;font-size:24px;color:var(--text);margin-top:6px}
+.stat:nth-child(3)::after{background:var(--purple)}
+.stat b{display:block;font-size:20px;color:var(--text);margin-top:6px}
 
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 input,select,textarea{width:100%;padding:12px 14px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:10px;margin:6px 0 14px;font-size:14px;transition:border-color 0.2s}
@@ -498,8 +497,8 @@ button:active{transform:scale(0.98)}
 .gold{background:var(--gold);color:#111}
 .teal{background:var(--teal);color:#111}
 .outline{background:#111827;color:white;border:1px solid var(--border)}
-.danger{background:var(--red);color:white}
-.success{background:var(--green);color:white}
+.danger{background:#451a1a;color:#fecaca}
+.success{background:#064e3b;color:#a7f3d0}
 
 .user-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin:14px 0;transition:border-color 0.2s}
 .user-card:hover{border-color:var(--blue)}
@@ -507,7 +506,7 @@ button:active{transform:scale(0.98)}
 .tag{font-size:12px;color:var(--teal);background:rgba(20,184,166,0.1);padding:4px 10px;border-radius:20px;border:1px solid rgba(20,184,166,0.2)}
 .ip-item{padding:12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
 
-dialog{width:min(700px,96vw);max-height:92vh;background:var(--card);color:white;border:1px solid var(--border);border-radius:20px;padding:0;box-shadow:0 25px 50px rgba(0,0,0,0.7)}
+dialog{width:min(720px,96vw);max-height:92vh;background:var(--card);color:white;border:1px solid var(--border);border-radius:20px;padding:0;box-shadow:0 25px 50px rgba(0,0,0,0.7)}
 dialog::backdrop{background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)}
 .modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 .modal-body{padding:20px 24px;overflow-y:auto;max-height:calc(92vh - 140px)}
@@ -531,6 +530,11 @@ input:checked+.slider:before{transform:translateX(22px)}
 .config-body.show{display:block}
 .warning-alert{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:10px;font-size:12px;color:#fca5a5;display:flex;gap:10px;align-items:center;margin-top:12px}
 
+/* دکمه‌های پیش‌فرض اپراتورها در مودال */
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}
+.preset-btn{background:#0d1522;border:1px solid var(--border);color:var(--text);padding:10px;border-radius:8px;cursor:pointer;font-size:12px;text-align:center}
+.preset-btn:hover{border-color:var(--teal)}
+
 @media(max-width:640px){
   body{padding:10px}
   header,.card,.toolbar{padding:14px}
@@ -543,12 +547,13 @@ input:checked+.slider:before{transform:translateX(22px)}
 <body>
 <main>
 <header>
-  <h1>⚡ KING PANEL (Zeus Edition)</h1>
+  <h1>👑 KING PANEL (Zeus Edition)</h1>
   <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>
 </header>
 
+<!-- کارت‌های آمار و وضعیت سرور مشابه مرجع ZEUS -->
 <section class="stats">
-  <div class="stat">کل کاربران<b id="total">0</b></div>
+  <div class="stat">کل کاربران ثبت‌شده<b id="total">0</b></div>
   <div class="stat">کاربران فعال<b id="active">0</b></div>
   <div class="stat">غیرفعال / منقضی<b id="expired">0</b></div>
   <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>
@@ -582,14 +587,14 @@ input:checked+.slider:before{transform:translateX(22px)}
   </div>
 </section>
 
-<!-- بخش تنظیمات پیشرفته Fragment -->
+<!-- بخش تنظیمات پیشرفته Fragment (منطبق با تصاویر مرجع) -->
 <section class="config-section">
   <div class="config-header" onclick="toggleConfigBody('frag-body')">
     <div style="display:flex;align-items:center;gap:12px;">
       <span style="color:var(--teal);font-size:20px;">⚡</span>
       <div>
-        <h2>تنظیمات فرگمنت ضد فیلترینگ (Fragment)</h2>
-        <div class="muted">تکه‌تکه کردن پکت‌ها جهت تضمین اتصال (تست‌شده و موفق)</div>
+        <h2>فرگمنت ضد فیلترینگ (Fragment)</h2>
+        <div class="muted">تکه‌تکه کردن پکت‌های اتصال برای عبور تضمینی (تست‌شده و موفق)</div>
       </div>
     </div>
     <label class="switch" onclick="event.stopPropagation()">
@@ -598,12 +603,20 @@ input:checked+.slider:before{transform:translateX(22px)}
     </label>
   </div>
   <div class="config-body" id="frag-body">
-    <label>طول پکت‌ها (Length)</label>
+    <label>طول فرگمنت (Length) - بایت‌های تقسیم پکت</label>
     <input id="frag-len-input" placeholder="100-200" value="100-200">
-    <label>فاصله زمانی (Interval)</label>
+    <label>بازه فرگمنت (Interval ms) - تاخیر میلی‌ثانیه</label>
     <input id="frag-int-input" placeholder="10-20" value="10-20">
-    <div class="warning-alert">
-      <span>ℹ️ این تنظیم روی کانفیگ‌های تولیدی اعمال شده و اتصال پایدار را تسهیل می‌کند.</span>
+    
+    <label style="margin-top:12px;display:block;">تنظیمات پیشنهادی برای اپراتورها (کلیک برای اعمال خودکار):</label>
+    <div class="preset-grid">
+      <div class="preset-btn" onclick="setPreset('10-30', '2-5')">🟢 همراه اول (MCI)<br><small>شکستن پکت</small></div>
+      <div class="preset-btn" onclick="setPreset('100-200', '5-10')">🟡 ایرانسل (MTN)<br><small>پایداری 4G/5G</small></div>
+      <div class="preset-btn" onclick="setPreset('50-100', '2-5')">🟣 رایتل (Rightel)<br><small>بهینه 3G/4G</small></div>
+    </div>
+
+    <div class="warning-alert" style="margin-top:15px;">
+      <span>ℹ️ این تنظیم روی کانفیگ‌های خروجی ساب‌سکرپشن و YAML به صورت استاندارد اعمال می‌شود.</span>
     </div>
     <div class="row" style="margin-top:15px;">
       <button class="teal" onclick="saveFragmentSettings()">ذخیره تنظیمات فرگمنت</button>
@@ -620,10 +633,10 @@ input:checked+.slider:before{transform:translateX(22px)}
 
 <section id="users-list"></section>
 
-<!-- مودال مدیریت کاربر با تب‌بندی پیشرفته -->
+<!-- مودال پیشرفته ۴ تب (مشابه تصاویر مرجع ZEUS) -->
 <dialog id="user-modal">
   <div class="modal-header">
-    <h2 id="modal-title" style="margin:0;color:var(--gold);">افزودن کاربر جدید</h2>
+    <h2 id="modal-title" style="margin:0;color:var(--gold);">ایجاد کاربر جدید</h2>
     <button class="outline" style="padding:6px 10px;margin:0;" onclick="closeUserModal()">✕</button>
   </div>
   
@@ -638,10 +651,13 @@ input:checked+.slider:before{transform:translateX(22px)}
     <form id="user-form">
       <input id="edit-id" type="hidden">
       
+      <!-- تب ۱: مشخصات -->
       <div id="tab-spec" class="tab-pane active">
-        <label>نام کاربری</label>
-        <input id="username" required placeholder="مثلاً amir">
-        <div class="muted">نام کاربری به صورت خودکار با پیشوند استاندارد ثبت می‌شود.</div>
+        <label>نام کاربری (الزامی)</label>
+        <div class="row" style="gap:0;">
+          <input id="username" required placeholder="مثلاً ali" style="margin-bottom:6px;">
+        </div>
+        <div class="muted">نام کاربری به صورت خودکار با پیشوند استاندارد کینگ پنل ثبت می‌شود.</div>
         
         <label style="margin-top:14px;display:block;">وضعیت حساب</label>
         <select id="status">
@@ -650,52 +666,55 @@ input:checked+.slider:before{transform:translateX(22px)}
         </select>
       </div>
 
+      <!-- تب ۲: پورت و IP -->
       <div id="tab-network" class="tab-pane">
         <label>پورت اتصال (پشتیبانی‌شده توسط کلودفلر)</label>
         <select id="port">
-          <option value="443">443 (امن HTTPS)</option>
+          <option value="443">443 (امن HTTPS - TLS)</option>
           <option value="2053">2053 (پورت ابری)</option>
           <option value="2083">2083 (پورت ابری)</option>
           <option value="2087">2087 (پورت ابری)</option>
           <option value="8443">8443 (پورت ابری)</option>
         </select>
-        <div class="muted">آی‌پی فعال سیستم به صورت هوشمند جایگزین دامنه می‌گردد.</div>
+        <div class="muted">آی‌پی فعال مخزن به صورت خودکار روی کانفیگ‌ها ست می‌شود.</div>
       </div>
 
+      <!-- تب ۳: پروکسی -->
       <div id="tab-proxy" class="tab-pane">
         <label>پروتکل اتصال</label>
         <select id="protocol">
-          <option value="VLESS">VLESS (تست‌شده و پایدار)</option>
-          <option value="Trojan">Trojan</option>
-          <option value="Shadowsocks">Shadowsocks</option>
+          <option value="VLESS">VLESS (تست‌شده و پرسرعت)</option>
+          <option value="Trojan">Trojan (امنیت پیشرفته)</option>
+          <option value="Shadowsocks">Shadowsocks (پروتکل سبک)</option>
         </select>
-        <div class="muted">انتخاب پروتکل رمزنگاری شده برای اشتراک‌گذاری در کلاینت‌ها.</div>
+        <div class="muted">انتخاب پروتکل رمزنگاری شده جهت سازگاری با v2rayNG و نایوباکس.</div>
       </div>
 
+      <!-- تب ۴: پیشرفته -->
       <div id="tab-advanced" class="tab-pane">
-        <label>حجم ترافیک (GB)</label>
+        <label>حجم مجاز (گیگابایت)</label>
         <input id="traffic" type="number" min="1" value="100" required>
         
-        <label>مدت اعتبار (روز)</label>
+        <label>مدت زمان اعتبار (روز)</label>
         <input id="expire" type="number" min="1" value="30" required>
         
         <div class="warning-alert">
-          <span>ℹ️ پارامترهای امنیتی TLS 1.3 و WebSockets فعال هستند.</span>
+          <span>ℹ️ تمامی پارامترهای ارتباطی TLS 1.3 و WebSockets به صورت فعال و استاندارد درج می‌گردند.</span>
         </div>
       </div>
     </form>
   </div>
 
   <div class="modal-footer">
-    <button class="blue" onclick="submitUserForm()">ذخیره کاربر</button>
-    <button class="outline" onclick="closeUserModal()">انصراف</button>
+    <button class="success" onclick="submitUserForm()">ایجاد کاربر</button>
+    <button class="danger" onclick="closeUserModal()">انصراف</button>
   </div>
 </dialog>
 
 <!-- مودال مدیریت IPها -->
 <dialog id="ip-dialog">
   <div class="modal-header">
-    <h2 style="margin:0;color:var(--gold);">مدیریت مخزن IP و پورت</h2>
+    <h2 style="margin:0;color:var(--gold);">مدیریت مخزن IP و پورت (Clean IPs)</h2>
     <button class="outline" style="padding:6px 10px;margin:0;" onclick="document.getElementById('ip-dialog').close()">✕</button>
   </div>
   <div class="modal-body">
@@ -749,6 +768,12 @@ function switchTab(e, tabId) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   e.target.classList.add('active');
   document.getElementById(tabId).classList.add('active');
+}
+
+function setPreset(len, intVal) {
+  document.getElementById("frag-len-input").value = len;
+  document.getElementById("frag-int-input").value = intVal;
+  alert("تنظیمات فرگمنت اپراتور اعمال شد. برای ذخیره روی دکمه ذخیره کلیک کنید.");
 }
 
 async function saveEchSettings(isToggleOnly = false) {
@@ -859,7 +884,7 @@ function openUserModal() {
   document.getElementById("user-form").reset();
   document.getElementById("edit-id").value = "";
   document.getElementById("username").disabled = false;
-  document.getElementById("modal-title").textContent = "افزودن کاربر جدید";
+  document.getElementById("modal-title").textContent = "ایجاد کاربر جدید";
   document.getElementById("user-modal").showModal();
 }
 
@@ -1008,7 +1033,7 @@ async function getCloudflareRanges() {
   root.textContent = "در حال دریافت رنج‌های رسمی...";
 
   try {
-    const data = await api("/api/cloudflare-ranges");
+    data = await api("/api/cloudflare-ranges");
     const ips = [...data.ipv4, ...data.ipv6];
 
     document.getElementById("bulk-ips").value = ips.join("\\n");
