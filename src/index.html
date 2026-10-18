@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KING PANEL</title>
+<style>
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;--teal:#14b8a6}
+*{box-sizing:border-box}
+body{margin:0;padding:15px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+main{max-width:1100px;margin:auto}
+header,.card,.toolbar{background:var(--card);border:1px solid var(--border);border-radius:15px;padding:17px;margin-bottom:15px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:21px;color:var(--gold);margin:0}
+h2{font-size:16px}
+.muted{color:var(--muted);font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:15px}
+.stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:12px}
+.stat b{display:block;font-size:22px;color:var(--gold);margin-top:6px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap}
+input,select,textarea{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:9px;margin:5px 0 12px}
+textarea{min-height:110px}
+button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:bold;margin:3px;font-size:13px}
+.gold{background:var(--gold);color:#111}
+.teal{background:var(--teal);color:#111}
+.outline{background:#111827;color:white;border:1px solid var(--border)}
+.danger{background:#451a1a;color:#fecaca}
+.user{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:15px;margin:12px 0;overflow-wrap:anywhere}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.tag{font-size:12px;color:var(--green)}
+.ip{padding:10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--gold);border-radius:15px}
+dialog::backdrop{background:#000b}
+.config-card { background: #07111e; border: 1px solid #132238; border-radius: 14px; padding: 15px; margin-bottom: 15px; }
+.config-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #1e2634; transition: .3s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--teal); }
+input:checked + .slider:before { transform: translateX(22px); }
+.config-body { margin-top: 15px; display: none; border-top: 1px solid var(--border); padding-top: 15px; }
+.config-body.show { display: block; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
+.preset-btn { background: #0d1522; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 8px; cursor: pointer; font-size: 11px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>👑 KING PANEL</h1>
+  <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>
+</header>
+<section class="stats">
+  <div class="stat">کل کاربران<b id="total">0</b></div>
+  <div class="stat">کاربران فعال<b id="active">0</b></div>
+  <div class="stat">غیرفعال<b id="disabled">0</b></div>
+  <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>
+</section>
+<div class="toolbar" style="padding:15px;margin-bottom:15px;">
+  <input id="search-input" placeholder="🔍 جستجوی نام کاربری..." oninput="filterUsers()" style="margin:0;flex:2;min-width:200px;">
+  <select id="filter-status" onchange="filterUsers()" style="margin:0;flex:1;min-width:140px;">
+    <option value="all">همه کاربران</option>
+    <option value="active">فقط فعال‌ها</option>
+    <option value="disabled">فقط غیرفعال‌ها</option>
+  </select>
+</div>
+<section class="config-card">
+  <div class="config-header" onclick="toggleBody('ech-body-content')">
+    <div style="display:flex;align-items:center;gap:10px;"><span style="color:var(--purple);font-size:18px;">🔒</span><div><h2 style="margin:0;">تنظیمات ECH</h2><div class="muted">رمزنگاری نام سرور</div></div></div>
+    <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="ech-toggle" onchange="saveEchSettings(true)"><span class="slider"></span></label>
+  </div>
+  <div class="config-body" id="ech-body-content">
+    <label>مقدار ECH</label><input id="ech-value-input" value="cloudflare-ech.com+udp://1.1.1.1">
+    <button class="gold" onclick="saveEchSettings()">ذخیره ECH</button>
+  </div>
+</section>
+<section class="config-card">
+  <div class="config-header" onclick="toggleBody('frag-body-content')">
+    <div style="display:flex;align-items:center;gap:10px;"><span style="color:var(--teal);font-size:18px;">⚡</span><div><h2 style="margin:0;">تنظیمات فرگمنت</h2><div class="muted">تکه‌تکه کردن پکت‌ها</div></div></div>
+    <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="frag-toggle" onchange="saveFragmentSettings(true)"><span class="slider"></span></label>
+  </div>
+  <div class="config-body" id="frag-body-content">
+    <label>طول (Length)</label><input id="frag-len-input" value="100-200">
+    <label>بازه (Interval ms)</label><input id="frag-int-input" value="10-20">
+    <button class="teal" onclick="saveFragmentSettings()">ذخیره فرگمنت</button>
+  </div>
+</section>
+<div class="toolbar">
+  <button class="gold" onclick="openUser()">+ ایجاد کاربر</button>
+  <button class="outline" onclick="openIps()">مدیریت IPها</button>
+  <button class="outline" onclick="loadAll()">بروزرسانی</button>
+</div>
+<section id="users"></section>
+<dialog id="user-dialog">
+  <h2 id="user-title">ایجاد کاربر</h2>
+  <form id="user-form">
+    <input id="edit-id" type="hidden">
+    <label>نام کاربری</label><input id="username" required placeholder="مثلاً ali">
+    <label>پروتکل</label><select id="protocol"><option>VLESS</option><option>Trojan</option><option>Shadowsocks</option></select>
+    <label>پورت</label><select id="port"><option>443</option><option>2053</option><option>2083</option><option>2087</option><option>8443</option></select>
+    <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>
+    <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>
+    <label>وضعیت</label><select id="status"><option value="active">فعال</option><option value="disabled">غیرفعال</option></select>
+    <button class="gold" type="submit">ذخیره</button>
+  </form>
+</dialog>
+<dialog id="ip-dialog">
+  <h2>مدیریت IP</h2>
+  <input id="ip-input" placeholder="مثال: 104.16.132.229"><button class="gold" onclick="saveIp()">ثبت IP</button>
+  <div id="ip-list"></div>
+  <button class="outline" onclick="document.getElementById('ip-dialog').close()">بستن</button>
+</dialog>
+</main>
+<script>
+  window.currentHost = __HOST__;
+  window.publicPanelUrl = __PUBLIC_URL__;
+</script>
+<script src="/panel.js"></script>
+</body>
+</html>
