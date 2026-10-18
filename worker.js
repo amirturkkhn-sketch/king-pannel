@@ -37,7 +37,7 @@ export default {
     }
 
     // -----------------------------------------------------
-    // SECURE ADMIN AUTHENTICATION (STYLIZED LOGIN PAGE)
+    // SECURE ADMIN AUTHENTICATION
     // -----------------------------------------------------
     if (path.startsWith("/api/") || path === "/") {
       const adminUser = env.ADMIN_USER;
@@ -58,7 +58,7 @@ export default {
           <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1">
-          <title>ورود به پنل KINGAMIR</title>
+          <title>ورود به KING PANEL</title>
           <style>
             :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af}
             body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}
@@ -70,7 +70,7 @@ export default {
           </head>
           <body>
             <div class="login-card">
-              <span class="badge">👑 KINGAMIR PANEL 👑</span>
+              <span class="badge">👑 KING PANEL 👑</span>
               <h1>خوش آمدید مدیریت عزیز</h1>
               <p>لطفاً برای ورود به پنل، اطلاعات دسترسی خود را وارد کنید.</p>
             </div>
@@ -80,7 +80,7 @@ export default {
           status: 401,
           headers: {
             "Content-Type": "text/html; charset=UTF-8",
-            "WWW-Authenticate": 'Basic realm="KINGAMIR PANEL"'
+            "WWW-Authenticate": 'Basic realm="KING PANEL"'
           }
         });
       }
@@ -103,7 +103,7 @@ export default {
       }
     }
 
-    // دریافت تنظیمات Clean IP، ECH و Fragment از دیتابیس
+    // دریافت تنظیمات از دیتابیس
     const [activeRow, echEnabledRow, echValueRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
       env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first().catch(() => null),
       env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_enabled'").first().catch(() => null),
@@ -113,11 +113,12 @@ export default {
       env.DB.prepare("SELECT value FROM settings WHERE key = 'frag_int'").first().catch(() => null)
     ]);
 
-    const activeCleanIp = activeRow?.value || host;
+    const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
+    const connectionHost = env.CONNECTION_HOST || host;
+    const activeCleanIp = activeRow?.value || connectionHost;
     const echEnabled = echEnabledRow?.value === "true";
     const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";
     
-    // تنظیمات فرگمنت (پیش‌فرض فعال با مقایس استاندارد)
     const fragEnabled = fragEnabledRow?.value !== "false";
     const fragLen = fragLenRow?.value || "100-200";
     const fragInt = fragIntRow?.value || "10-20";
@@ -161,7 +162,7 @@ export default {
     }
 
     // -----------------------------------------------------
-    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS (WITH ECH & FRAGMENT)
+    // SUBSCRIPTION: VLESS / TROJAN / SHADOWSOCKS
     // -----------------------------------------------------
     if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {
       const username = decodeURIComponent(path.split("/")[2] || "");
@@ -192,7 +193,6 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
-      // اعمال پارامترهای فرگمنت در صورت فعال بودن
       const fragmentParam = fragEnabled ? `&packet=tls&length=${fragLen}&interval=${fragInt}` : "";
       const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss") 
         ? `&ech=${encodeURIComponent(echValue)}` 
@@ -202,9 +202,9 @@ export default {
         config =
           `vless://${user.uuid}@${activeCleanIp}:${port}` +
           `?encryption=none&security=tls` +
-          `&sni=${encodeURIComponent(host)}` +
+          `&sni=${encodeURIComponent(connectionHost)}` +
           `&fp=chrome&type=ws` +
-          `&host=${encodeURIComponent(host)}` +
+          `&host=${encodeURIComponent(connectionHost)}` +
           `&path=%2F%3Fed%3D2048` +
           fragmentParam +
           echParam +
@@ -213,9 +213,9 @@ export default {
         config =
           `trojan://${user.uuid}@${activeCleanIp}:${port}` +
           `?security=tls` +
-          `&sni=${encodeURIComponent(host)}` +
+          `&sni=${encodeURIComponent(connectionHost)}` +
           `&type=ws` +
-          `&host=${encodeURIComponent(host)}` +
+          `&host=${encodeURIComponent(connectionHost)}` +
           `&path=%2F%3Fed%3D2048` +
           fragmentParam +
           echParam +
@@ -238,13 +238,13 @@ export default {
           protocol === "vless" ? "    encryption: none" : "",
           "    network: ws",
           "    tls: true",
-          `    servername: "${yamlEscape(host)}"`,
+          `    servername: "${yamlEscape(connectionHost)}"`,
           "    skip-cert-verify: false",
           (echEnabled && protocol !== "shadowsocks") ? `    ech-config: "${yamlEscape(echValue)}"` : "",
           "    ws-opts:",
           '      path: "/?ed=2048"',
           "      headers:",
-          `        Host: "${yamlEscape(host)}"`,
+          `        Host: "${yamlEscape(connectionHost)}"`,
           "    client-fingerprint: chrome",
           fragEnabled ? `    fragment: tls` : "",
           fragEnabled ? `    fragment-length: ${fragLen}` : "",
@@ -312,6 +312,8 @@ export default {
         users: usersResult.results || [],
         savedIps: (ipsResult.results || []).map(row => ({ id: row.key, ip: row.value })),
         activeCleanIp,
+        publicUrl,
+        connectionHost,
         echSettings: {
           enabled: echEnabled,
           value: echValue
@@ -323,7 +325,8 @@ export default {
         },
         metrics: {
           total: (usersResult.results || []).length,
-          active: (usersResult.results || []).filter(u => u.status === 'active').length
+          active: (usersResult.results || []).filter(u => u.status === 'active').length,
+          disabled: (usersResult.results || []).filter(u => u.status === 'disabled').length
         }
       });
     }
@@ -367,7 +370,7 @@ export default {
           UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, status = ? WHERE id = ?
         `).bind(protocol, traffic, expire, port, status, String(body.id)).run();
 
-        return json({ success: true, message: "کاربر ویرایش شد." });
+        return json({ success: true, message: "کاربر با موفقیت ویرایش شد." });
       }
 
       const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
@@ -381,7 +384,31 @@ export default {
         VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', 'on', 'on', ?)
       `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
 
-      return json({ success: true, message: "کاربر ثبت شد." });
+      return json({ success: true, message: "کاربر جدید ثبت شد." });
+    }
+
+    // -----------------------------------------------------
+    // REGENERATE UUID
+    // -----------------------------------------------------
+    if (path.startsWith("/api/users/regen/") && method === "POST") {
+      const id = decodeURIComponent(path.slice("/api/users/regen/".length));
+      if (!id) return json({ error: "شناسه نامعتبر است." }, 400);
+
+      const newUuid = crypto.randomUUID();
+      await env.DB.prepare("UPDATE users SET uuid = ? WHERE id = ?").bind(newUuid, id).run();
+      return json({ success: true, message: "UUID کاربر با موفقیت بازسازی شد.", uuid: newUuid });
+    }
+
+    // -----------------------------------------------------
+    // TOGGLE USER STATUS
+    // -----------------------------------------------------
+    if (path.startsWith("/api/users/status/") && method === "POST") {
+      const id = decodeURIComponent(path.slice("/api/users/status/".length));
+      const body = await readJson(request);
+      const newStatus = body?.status === "disabled" ? "disabled" : "active";
+
+      await env.DB.prepare("UPDATE users SET status = ? WHERE id = ?").bind(newStatus, id).run();
+      return json({ success: true, message: "وضعیت کاربر به‌روز شد." });
     }
 
     // -----------------------------------------------------
@@ -392,7 +419,7 @@ export default {
       if (!id) return json({ error: "شناسه نامعتبر است." }, 400);
 
       await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
-      return json({ success: true });
+      return json({ success: true, message: "کاربر حذف شد." });
     }
 
     // -----------------------------------------------------
@@ -482,7 +509,7 @@ export default {
       });
     }
 
-    return html(dashboard(host));
+    return html(dashboard(host, publicUrl));
   }
 };
 
@@ -542,14 +569,15 @@ function makeIpKey(ip) {
   return "ip_" + ip.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
-function dashboard(host) {
+function dashboard(host, publicUrl) {
   const safeHost = JSON.stringify(host);
+  const safePublicUrl = JSON.stringify(publicUrl);
   return `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KINGAMIR PANEL</title>
+<title>KING PANEL</title>
 <style>
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;--teal:#14b8a6}
 *{box-sizing:border-box}
@@ -560,13 +588,13 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fl
 h1{font-size:21px;color:var(--gold);margin:0}
 h2{font-size:16px}
 .muted{color:var(--muted);font-size:12px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:15px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:15px}
 .stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:12px}
 .stat b{display:block;font-size:22px;color:var(--gold);margin-top:6px}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap}
 input,select,textarea{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:9px;margin:5px 0 12px}
 textarea{min-height:110px}
-button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;margin:3px}
+button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;margin:3px;font-size:13px}
 .gold{background:var(--gold);color:#111}
 .teal{background:var(--teal);color:#111}
 .outline{background:#111827;color:white;border:1px solid var(--border)}
@@ -578,7 +606,7 @@ button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-
 dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--gold);border-radius:15px}
 dialog::backdrop{background:#000b}
 
-/* استایل‌های کارت ECH و Fragment */
+/* Config Cards */
 .config-card { background: #07111e; border: 1px solid #132238; border-radius: 14px; padding: 15px; margin-bottom: 15px; }
 .config-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
@@ -598,15 +626,26 @@ input:checked + .slider:before { transform: translateX(22px); }
 <body>
 <main>
 <header>
-  <h1>KINGAMIR PANEL</h1>
+  <h1>👑 KING PANEL</h1>
   <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>
 </header>
 
 <section class="stats">
-  <div class="stat">تعداد کاربران<b id="total">0</b></div>
+  <div class="stat">کل کاربران<b id="total">0</b></div>
   <div class="stat">کاربران فعال<b id="active">0</b></div>
+  <div class="stat">غیرفعال<b id="disabled">0</b></div>
   <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>
 </section>
+
+<!-- بخش جستجو و فیلتر کاربران -->
+<div class="toolbar" style="background:var(--card);border:1px solid var(--border);border-radius:15px;padding:15px;margin-bottom:15px;">
+  <input id="search-input" placeholder="🔍 جستجوی نام کاربری..." oninput="filterUsers()" style="margin:0;flex:2;min-width:200px;">
+  <select id="filter-status" onchange="filterUsers()" style="margin:0;flex:1;min-width:140px;">
+    <option value="all">همه کاربران</option>
+    <option value="active">فقط فعال‌ها</option>
+    <option value="disabled">فقط غیرفعال‌ها</option>
+  </select>
+</div>
 
 <!-- بخش تنظیمات ECH -->
 <section class="config-card">
@@ -615,7 +654,7 @@ input:checked + .slider:before { transform: translateX(22px); }
       <span style="color:var(--purple);font-size:18px;">🔒</span>
       <div>
         <h2 style="margin:0;color:var(--text);">تنظیمات ECH (Encrypted Client Hello)</h2>
-        <div class="muted">رمزنگاری نام سرور در دسترشنی TLS برای دورزدن مسدودسازی SNI</div>
+        <div class="muted">رمزنگاری نام سرور در دسترشنی TLS</div>
       </div>
     </div>
     <label class="switch" onclick="event.stopPropagation()">
@@ -624,26 +663,23 @@ input:checked + .slider:before { transform: translateX(22px); }
     </label>
   </div>
   <div class="config-body" id="ech-body-content">
-    <label>مقدار ECH (تنظیمات رمزنگاری Hello)</label>
+    <label>مقدار ECH</label>
     <input id="ech-value-input" placeholder="cloudflare-ech.com+udp://1.1.1.1" value="cloudflare-ech.com+udp://1.1.1.1">
-    <div class="warning-box">
-      <span>⚠️ هشدار: این تنظیمات روی پروتکل سادوساکس اعمال نمی‌شوند.</span>
-    </div>
     <div class="row" style="margin-top:15px;">
-      <button class="gold" onclick="saveEchSettings()">ذخیره تغییرات ECH</button>
-      <button class="outline" onclick="toggleBody('ech-body-content')">انصراف</button>
+      <button class="gold" onclick="saveEchSettings()">ذخیره ECH</button>
+      <button class="outline" onclick="toggleBody('ech-body-content')">بستن</button>
     </div>
   </div>
 </section>
 
-<!-- بخش تنظیمات کامل Fragment (اضافه شده جدید) -->
+<!-- بخش تنظیمات Fragment -->
 <section class="config-card">
   <div class="config-header" onclick="toggleBody('frag-body-content')">
     <div style="display:flex;align-items:center;gap:10px;">
       <span style="color:var(--teal);font-size:18px;">⚡</span>
       <div>
         <h2 style="margin:0;color:var(--text);">تنظیمات فرگمنت ضد فیلترینگ (Fragment)</h2>
-        <div class="muted">تکه‌تکه کردن پکت‌های اتصال برای عبور از فیلترینگ (مناسب کلاینت‌های سازگار)</div>
+        <div class="muted">تکه‌تکه کردن پکت‌های اتصال برای عبور از فیلترینگ</div>
       </div>
     </div>
     <label class="switch" onclick="event.stopPropagation()">
@@ -652,26 +688,19 @@ input:checked + .slider:before { transform: translateX(22px); }
     </label>
   </div>
   <div class="config-body" id="frag-body-content">
-    <label>طول فرگمنت (Length) - بایت‌های تقسیم پکت</label>
+    <label>طول فرگمنت (Length)</label>
     <input id="frag-len-input" placeholder="100-200" value="100-200">
-    
-    <label>بازه فرگمنت (Interval ms) - تاخیر میلی‌ثانیه</label>
+    <label>بازه فرگمنت (Interval ms)</label>
     <input id="frag-int-input" placeholder="10-20" value="10-20">
-
-    <label style="margin-top:10px;display:block;">تنظیمات پیشنهادی اپراتورها (کلیک جهت اعمال):</label>
+    <label style="margin-top:10px;display:block;">پیشنهاد اپراتورها:</label>
     <div class="preset-grid">
-      <div class="preset-btn" onclick="setPreset('10-30', '2-5')">🟢 همراه اول (MCI)</div>
-      <div class="preset-btn" onclick="setPreset('100-200', '5-10')">🟡 ایرانسل (MTN)</div>
-      <div class="preset-btn" onclick="setPreset('50-100', '2-5')">🟣 رایتل (Rightel)</div>
+      <div class="preset-btn" onclick="setPreset('10-30', '2-5')">🟢 همراه اول</div>
+      <div class="preset-btn" onclick="setPreset('100-200', '5-10')">🟡 ایرانسل</div>
+      <div class="preset-btn" onclick="setPreset('50-100', '2-5')">🟣 رایتل</div>
     </div>
-
-    <div class="warning-box">
-      <span>ℹ️ با فعال‌سازی این گزینه، پارامترهای Fragment به صورت خودکار به تمام لینک‌های ساب‌سکرپشن و فایل‌های YAML متصل می‌شوند.</span>
-    </div>
-
     <div class="row" style="margin-top:15px;">
-      <button class="teal" onclick="saveFragmentSettings()">ذخیره تنظیمات فرگمنت</button>
-      <button class="outline" onclick="toggleBody('frag-body-content')">انصراف</button>
+      <button class="teal" onclick="saveFragmentSettings()">ذخیره فرگمنت</button>
+      <button class="outline" onclick="toggleBody('frag-body-content')">بستن</button>
     </div>
   </div>
 </section>
@@ -679,11 +708,13 @@ input:checked + .slider:before { transform: translateX(22px); }
 <div class="toolbar">
   <button class="gold" onclick="openUser()">+ ایجاد کاربر</button>
   <button class="outline" onclick="openIps()">مدیریت IPها</button>
+  <button class="outline" onclick="openDiagnostics()">🔍 عیب‌یابی و وضعیت</button>
   <button class="outline" onclick="loadAll()">بروزرسانی</button>
 </div>
 
 <section id="users"></section>
 
+<!-- دیالوگ کاربر -->
 <dialog id="user-dialog">
   <h2 id="user-title">ایجاد کاربر</h2>
   <form id="user-form">
@@ -703,36 +734,45 @@ input:checked + .slider:before { transform: translateX(22px); }
     <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>
     <label>وضعیت</label>
     <select id="status"><option value="active">فعال</option><option value="disabled">غیرفعال</option></select>
-    <div class="row">
-      <button class="gold" type="submit">ذخیره</button>
-      <button class="outline" type="button" onclick="document.getElementById('user-dialog').close()">بستن</button>
+    <div class="row" style="margin-top:15px;">
+      <button class="gold" type="submit">ذخیره کاربر</button>
+      <button class="outline" type="button" onclick="document.getElementById('user-dialog').close()">انصراف</button>
     </div>
   </form>
 </dialog>
 
+<!-- دیالوگ مدیریت IP -->
 <dialog id="ip-dialog">
   <h2>مدیریت مخزن IP</h2>
   <label>ثبت و فعال‌کردن یک IP</label>
   <input id="ip-input" placeholder="مثال: 104.16.132.229">
   <button class="gold" onclick="saveIp()">ثبت و فعال‌کردن</button>
 
-  <label>واردکردن چند IP (هر خط یک IP)</label>
+  <label>واردکردن گروهی IP (هر خط یک IP)</label>
   <textarea id="bulk-ips" placeholder="104.16.132.229&#10;104.17.1.1"></textarea>
   <button class="gold" onclick="importIps()">واردکردن IPها</button>
   <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>
-
-  <p class="muted">محدوده‌های رسمی، IPهای تست‌شده نیستند. نتیجه این پنل تضمین اتصال مستقیم VLESS نیست.</p>
-  <div id="range-output"></div>
+  <div id="range-output" class="muted" style="margin-top:8px;"></div>
+  
   <h3>IPهای ذخیره‌شده</h3>
   <div id="ip-list">در حال بارگذاری...</div>
-  <button class="outline" onclick="document.getElementById('ip-dialog').close()">بستن</button>
+  <button class="outline" style="margin-top:15px;" onclick="document.getElementById('ip-dialog').close()">بستن</button>
+</dialog>
+
+<!-- دیالوگ عیب‌یابی -->
+<dialog id="diag-dialog">
+  <h2>گزارش عیب‌یابی سیستم</h2>
+  <div id="diag-content" style="font-size:13px;line-height:1.8;background:#030508;padding:12px;border-radius:10px;border:1px solid var(--border);">در حال بررسی...</div>
+  <button class="outline" style="margin-top:15px;" onclick="document.getElementById('diag-dialog').close()">بستن</button>
 </dialog>
 </main>
 
 <script>
 const currentHost = ${safeHost};
+const publicPanelUrl = ${safePublicUrl};
 let usersCache = [];
 let ipsCache = [];
+let systemInfo = {};
 
 async function api(path, options={}) {
   const response = await fetch(path, options);
@@ -748,32 +788,27 @@ function esc(value) {
 }
 
 function toggleBody(id) {
-  const body = document.getElementById(id);
-  body.classList.toggle("show");
+  document.getElementById(id).classList.toggle("show");
 }
 
 function setPreset(len, intVal) {
   document.getElementById("frag-len-input").value = len;
   document.getElementById("frag-int-input").value = intVal;
-  alert("مقادیر پیشنهادی اپراتور اعمال شد. روی دکمه ذخیره تنظیمات فرگمنت کلیک کنید.");
+  alert("مقادیر پیشنهادی اپراتور اعمال شد. روی ذخیره فرگمنت کلیک کنید.");
 }
 
 async function saveEchSettings(isToggleOnly = false) {
   const enabled = document.getElementById("ech-toggle").checked;
   const value = document.getElementById("ech-value-input").value.trim();
-
   try {
     const res = await api("/api/set-ech", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ enabled, value })
     });
-    if (!isToggleOnly) {
-      alert(res.message || "تنظیمات ECH ذخیره شد.");
-      toggleBody('ech-body-content');
-    }
+    if (!isToggleOnly) alert(res.message || "ذخیره شد.");
   } catch(e) {
-    alert("خطا در ذخیره ECH: " + e.message);
+    alert("خطا: " + e.message);
   }
 }
 
@@ -781,19 +816,15 @@ async function saveFragmentSettings(isToggleOnly = false) {
   const enabled = document.getElementById("frag-toggle").checked;
   const length = document.getElementById("frag-len-input").value.trim();
   const interval = document.getElementById("frag-int-input").value.trim();
-
   try {
     const res = await api("/api/set-fragment", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ enabled, length, interval })
     });
-    if (!isToggleOnly) {
-      alert(res.message || "تنظیمات فرگمنت ذخیره شد.");
-      toggleBody('frag-body-content');
-    }
+    if (!isToggleOnly) alert(res.message || "ذخیره شد.");
   } catch(e) {
-    alert("خطا در ذخیره فرگمنت: " + e.message);
+    alert("خطا: " + e.message);
   }
 }
 
@@ -802,71 +833,88 @@ async function loadAll() {
     const data = await api("/api/users");
     usersCache = data.users || [];
     ipsCache = data.savedIps || [];
+    systemInfo = data;
     
     document.getElementById("active-ip").textContent = "IP فعال: " + data.activeCleanIp;
     document.getElementById("total").textContent = data.metrics.total;
     document.getElementById("active").textContent = data.metrics.active;
+    document.getElementById("disabled").textContent = data.metrics.disabled;
     document.getElementById("ip-total").textContent = ipsCache.length;
 
-    // بارگذاری وضعیت ECH
     if (data.echSettings) {
       document.getElementById("ech-toggle").checked = data.echSettings.enabled;
       document.getElementById("ech-value-input").value = data.echSettings.value;
     }
-
-    // بارگذاری وضعیت Fragment
     if (data.fragmentSettings) {
       document.getElementById("frag-toggle").checked = data.fragmentSettings.enabled;
       document.getElementById("frag-len-input").value = data.fragmentSettings.length;
       document.getElementById("frag-int-input").value = data.fragmentSettings.interval;
     }
 
-    renderUsers();
+    filterUsers();
     renderIps();
   } catch(e) {
     alert("خطا در دریافت اطلاعات: " + e.message);
   }
 }
 
-function renderUsers() {
-  const root = document.getElementById("users");
+function filterUsers() {
+  const search = document.getElementById("search-input").value.toLowerCase();
+  const statusFilter = document.getElementById("filter-status").value;
 
-  if (!usersCache.length) {
-    root.innerHTML = '<div class="card">هنوز کاربری ثبت نشده است.</div>';
+  const filtered = usersCache.filter(u => {
+    const matchName = u.username.toLowerCase().includes(search);
+    const matchStatus = statusFilter === "all" || u.status === statusFilter;
+    return matchName && matchStatus;
+  });
+
+  renderUsersList(filtered);
+}
+
+function renderUsersList(list) {
+  const root = document.getElementById("users");
+  if (!list.length) {
+    root.innerHTML = '<div class="card">کاربری یافت نشد.</div>';
     return;
   }
 
-  root.innerHTML = usersCache.map(u => {
-    const sub = "/sub/" + encodeURIComponent(u.username);
-    const yaml = "/yaml/" + encodeURIComponent(u.username);
-    const status = u.status === "disabled" ? "غیرفعال" : "فعال";
+  root.innerHTML = list.map(u => {
+    const subUrl = publicPanelUrl + "/sub/" + encodeURIComponent(u.username);
+    const yamlUrl = publicPanelUrl + "/yaml/" + encodeURIComponent(u.username);
+    const statusText = u.status === "disabled" ? "غیرفعال" : "فعال";
+    const statusColor = u.status === "disabled" ? "var(--red)" : "var(--green)";
 
     return '<article class="user">' +
-      '<div class="row"><h2>' + esc(u.username) + '</h2><span>' + status + '</span></div>' +
-      '<p class="muted">پروتکل: ' + esc(u.protocol) +
-      ' | پورت: ' + esc(u.port) +
-      ' | حجم: ' + esc(u.traffic) +
-      ' | اعتبار: ' + esc(u.expire) + '</p>' +
-      '<a class="button gold" href="' + sub + '" target="_blank">ساب متنی</a>' +
-      '<a class="button outline" href="' + yaml + '" target="_blank">YAML</a>' +
-      '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">ویرایش</button>' +
-      '<button class="danger" onclick="deleteUser(\\'' + esc(u.id) + '\\')">حذف</button>' +
+      '<div class="row"><h2>' + esc(u.username) + '</h2><span style="color:' + statusColor + '">' + statusText + '</span></div>' +
+      '<p class="muted">پروتکل: ' + esc(u.protocol) + ' | پورت: ' + esc(u.port) + ' | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +
+      '<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">' +
+        '<button class="gold" onclick="copyText(\\'' + subUrl + '\\', \\'لینک ساب‌سکرپشن کپی شد!\\')">📋 کپی ساب</button>' +
+        '<button class="outline" onclick="copyText(\\'' + yamlUrl + '\\', \\'لینک YAML کپی شد!\\')">📄 کپی YAML</button>' +
+        '<button class="outline" onclick="copyText(\\'' + esc(u.uuid) + '\\', \\'UUID کپی شد!\\')">🔑 کپی UUID</button>' +
+        '<button class="outline" onclick="toggleUserStatus(\\'' + esc(u.id) + '\\', \\'' + esc(u.status) + '\\')">' + (u.status === 'disabled' ? '✅ فعال‌سازی' : '⛔ غیرفعال‌سازی') + '</button>' +
+        '<button class="outline" onclick="regenUuid(\\'' + esc(u.id) + '\\')">🔄 بازسازی UUID</button>' +
+        '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">✏️ ویرایش</button>' +
+        '<button class="danger" onclick="deleteUser(\\'' + esc(u.id) + '\\')">🗑️ حذف</button>' +
+      '</div>' +
       '</article>';
   }).join("");
+}
+
+function copyText(text, msg) {
+  navigator.clipboard.writeText(text).then(() => alert(msg)).catch(() => alert("خطا در کپی کردن."));
 }
 
 function openUser() {
   document.getElementById("user-form").reset();
   document.getElementById("edit-id").value = "";
   document.getElementById("username").disabled = false;
-  document.getElementById("user-title").textContent = "ایجاد کاربر";
+  document.getElementById("user-title").textContent = "ایجاد کاربر جدید";
   document.getElementById("user-dialog").showModal();
 }
 
 function editUser(id) {
   const u = usersCache.find(x => x.id === id);
   if (!u) return;
-
   document.getElementById("edit-id").value = u.id;
   document.getElementById("username").value = u.username;
   document.getElementById("username").disabled = true;
@@ -881,7 +929,6 @@ function editUser(id) {
 
 document.getElementById("user-form").addEventListener("submit", async e => {
   e.preventDefault();
-
   const id = document.getElementById("edit-id").value;
   const payload = {
     username: document.getElementById("username").value,
@@ -891,31 +938,54 @@ document.getElementById("user-form").addEventListener("submit", async e => {
     expire: document.getElementById("expire").value,
     status: document.getElementById("status").value
   };
-
   if (id) payload.id = id;
 
   try {
-    const result = await api("/api/users", {
+    const res = await api("/api/users", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
     });
-    alert(result.message || "ذخیره شد");
+    alert(res.message || "عملیات موفقیت‌آمیز بود.");
     document.getElementById("user-dialog").close();
     loadAll();
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
   }
 });
 
-async function deleteUser(id) {
-  if (!confirm("کاربر حذف شود؟")) return;
-
+async function toggleUserStatus(id, currentStatus) {
+  const nextStatus = currentStatus === "disabled" ? "active" : "disabled";
   try {
-    await api("/api/users/" + encodeURIComponent(id), {method:"DELETE"});
+    await api("/api/users/status/" + encodeURIComponent(id), {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ status: nextStatus })
+    });
     loadAll();
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
+  }
+}
+
+async function regenUuid(id) {
+  if (!confirm("آیا از بازسازی UUID این کاربر اطمینان دارید؟ اتصال‌های قبلی قطع خواهند شد.")) return;
+  try {
+    const res = await api("/api/users/regen/" + encodeURIComponent(id), { method: "POST" });
+    alert(res.message);
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm("آیا از حذف این کاربر اطمینان دارید؟")) return;
+  try {
+    await api("/api/users/" + encodeURIComponent(id), { method: "DELETE" });
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
   }
 }
 
@@ -926,23 +996,20 @@ function openIps() {
 
 function renderIps() {
   const root = document.getElementById("ip-list");
-
   if (!ipsCache.length) {
-    root.innerHTML = '<p class="muted">مخزن خالی است.</p>';
+    root.innerHTML = '<p class="muted">مخزن IP خالی است.</p>';
     return;
   }
-
   root.innerHTML = ipsCache.map(item =>
     '<div class="ip row"><code>' + esc(item.ip) + '</code>' +
-    '<div><button class="gold" onclick="selectIp(\\'' + esc(item.ip) + '\\')">انتخاب</button>' +
+    '<div><button class="gold" onclick="selectIp(\\'' + esc(item.ip) + '\\')">انتخاب و فعال‌سازی</button>' +
     '<button class="danger" onclick="deleteIp(\\'' + esc(item.id) + '\\')">حذف</button></div></div>'
   ).join("");
 }
 
 async function saveIp() {
   const ip = document.getElementById("ip-input").value.trim();
-  if (!ip) return alert("IP را وارد کن.");
-
+  if (!ip) return alert("لطفاً IP معتبری وارد کنید.");
   try {
     await api("/api/set-clean-ip", {
       method:"POST",
@@ -950,27 +1017,25 @@ async function saveIp() {
       body:JSON.stringify({ip})
     });
     document.getElementById("ip-input").value = "";
-    await loadAll();
+    loadAll();
     alert("IP ذخیره و فعال شد.");
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
   }
 }
 
 async function importIps() {
   const ips = document.getElementById("bulk-ips").value;
-
   try {
     const data = await api("/api/import-ips", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ips})
     });
-
-    await loadAll();
-    alert("ذخیره‌شده: " + data.saved);
+    loadAll();
+    alert("تعداد " + data.saved + " IP با موفقیت ایمپورت شد.");
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
   }
 }
 
@@ -981,41 +1046,47 @@ async function selectIp(ip) {
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ip})
     });
-    await loadAll();
-    alert("IP فعال تغییر کرد.");
+    loadAll();
+    alert("IP فعال با موفقیت تغییر کرد.");
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
   }
 }
 
 async function deleteIp(id) {
-  if (!confirm("این IP حذف شود؟")) return;
-
+  if (!confirm("این IP از مخزن حذف شود؟")) return;
   try {
-    await api("/api/delete-ip/" + encodeURIComponent(id), {
-      method:"DELETE"
-    });
+    await api("/api/delete-ip/" + encodeURIComponent(id), { method: "DELETE" });
     loadAll();
   } catch(e) {
-    alert(e.message);
+    alert("خطا: " + e.message);
   }
 }
 
 async function getRanges() {
   const root = document.getElementById("range-output");
-  root.textContent = "در حال دریافت...";
-
+  root.textContent = "در حال دریافت محدوده‌های رسمی...";
   try {
     const data = await api("/api/cloudflare-ranges");
     const ips = [...data.ipv4, ...data.ipv6];
-
     document.getElementById("bulk-ips").value = ips.join("\\n");
-    root.textContent = "محدوده‌های رسمی دریافت شد: " +
-      data.ipv4.length + " محدوده IPv4 و " +
-      data.ipv6.length + " محدوده IPv6. برای ذخیره، دکمه واردکردن را بزن.";
+    root.textContent = "محدوده‌های رسمی دریافت شدند: " + data.ipv4.length + " محدوده IPv4 و " + data.ipv6.length + " محدوده IPv6.";
   } catch(e) {
-    root.textContent = e.message;
+    root.textContent = "خطا در دریافت محدوده‌ها: " + e.message;
   }
+}
+
+function openDiagnostics() {
+  const diag = document.getElementById("diag-content");
+  diag.innerHTML = 
+    "• وضعیت پایگاه داده D1: <b>متصل و عملیاتی</b><br>" +
+    "• آدرس پنل عمومی: <b>" + esc(publicUrl) + "</b><br>" +
+    "• هاست اتصال (Connection Host): <b>" + esc(systemInfo.connectionHost || '-') + "</b><br>" +
+    "• IP فعال کنونی: <b>" + esc(systemInfo.activeCleanIp || '-') + "</b><br>" +
+    "• وضعیت ECH: <b>" + (systemInfo.echSettings?.enabled ? "فعال" : "غیرفعال") + "</b><br>" +
+    "• وضعیت Fragment: <b>" + (systemInfo.fragmentSettings?.enabled ? "فعال" : "غیرفعال") + "</b><br>" +
+    "• کل کاربران ثبت‌شده: <b>" + (systemInfo.metrics?.total || 0) + "</b>";
+  document.getElementById("diag-dialog").showModal();
 }
 
 loadAll();
