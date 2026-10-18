@@ -103,7 +103,7 @@ export default {
       }
     }
 
-    // دریافت تنظیمات از دیتابیس با اصلاح باگ پیش‌فرض فرگمنت
+    // دریافت تنظیمات از دیتابیس
     const [activeRow, echEnabledRow, echValueRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
       env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first().catch(() => null),
       env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_enabled'").first().catch(() => null),
@@ -119,7 +119,6 @@ export default {
     const echEnabled = echEnabledRow?.value === "true";
     const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";
     
-    // اصلاح اصلی: مقدار پیش‌فرض تنها در صورت صریح بودن برابر true می‌شود
     const fragEnabled = fragEnabledRow?.value === "true";
     const fragLen = fragLenRow?.value || "100-200";
     const fragInt = fragIntRow?.value || "10-20";
@@ -133,10 +132,6 @@ export default {
 
       const enabled = body.enabled ? "true" : "false";
       const value = String(body.value || "").trim();
-
-      if (enabled === "true" && !value) {
-        return json({ error: "مقدار ECH نمی‌تواند خالی باشد." }, 400);
-      }
 
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_enabled', ?)").bind(enabled).run();
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_value', ?)").bind(value).run();
@@ -194,7 +189,6 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
-      // پارامترهای فرگمنت و ECH تنها در صورت فعال بودن صریح اعمال می‌شوند
       const fragmentParam = fragEnabled ? `&packet=tls&length=${fragLen}&interval=${fragInt}` : "";
       const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss") 
         ? `&ech=${encodeURIComponent(echValue)}` 
