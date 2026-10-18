@@ -1,0 +1,7 @@
+name = "foxcloud-worker"
+main = "worker.js"
+compatibility_date = "2026-10-18"
+
+[vars]
+UUID = "d342d11e-d424-4583-b36e-524abb1f043e"
+PROXY_IP = "104.16.132.229"
