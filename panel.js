@@ -103,7 +103,7 @@ export default {
       }
     }
 
-    // دریافت تنظیمات از دیتابیس
+    // دریافت تنظیمات از دیتابیس با اصلاح باگ پیش‌فرض فرگمنت
     const [activeRow, echEnabledRow, echValueRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
       env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first().catch(() => null),
       env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_enabled'").first().catch(() => null),
@@ -119,7 +119,8 @@ export default {
     const echEnabled = echEnabledRow?.value === "true";
     const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";
     
-    const fragEnabled = fragEnabledRow?.value !== "false";
+    // اصلاح اصلی: مقدار پیش‌فرض تنها در صورت صریح بودن برابر true می‌شود
+    const fragEnabled = fragEnabledRow?.value === "true";
     const fragLen = fragLenRow?.value || "100-200";
     const fragInt = fragIntRow?.value || "10-20";
 
@@ -193,6 +194,7 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
+      // پارامترهای فرگمنت و ECH تنها در صورت فعال بودن صریح اعمال می‌شوند
       const fragmentParam = fragEnabled ? `&packet=tls&length=${fragLen}&interval=${fragInt}` : "";
       const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss") 
         ? `&ech=${encodeURIComponent(echValue)}` 
@@ -1076,7 +1078,7 @@ async function getRanges() {
   }
 }
 
-function openDiagnostics() {
+openDiagnostics = function() {
   const diag = document.getElementById("diag-content");
   diag.innerHTML = 
     "• وضعیت پایگاه داده D1: <b>متصل و عملیاتی</b><br>" +
@@ -1087,7 +1089,7 @@ function openDiagnostics() {
     "• وضعیت Fragment: <b>" + (systemInfo.fragmentSettings?.enabled ? "فعال" : "غیرفعال") + "</b><br>" +
     "• کل کاربران ثبت‌شده: <b>" + (systemInfo.metrics?.total || 0) + "</b>";
   document.getElementById("diag-dialog").showModal();
-}
+};
 
 loadAll();
 </script>
