@@ -1,8 +1,0 @@
-name = "mnm"
-main = "panel.js"
-compatibility_date = "2026-01-01"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "king_db"
-database_id = "6cc7faea-b60b-4b08-b324-0107df38194e"
