@@ -1,12 +1,4 @@
-name = "king-panel"
-main = "worker.js"
-compatibility_date = "2026-10-18"
-
 [[d1_databases]]
 binding = "DB"
-database_name = "king-panel-db"
-database_id = "YOUR_D1_DATABASE_ID"
-
-[vars]
-PANEL_PUBLIC_URL = "https://mnm.quzalkexuyzs.workers.dev"
-CONNECTION_HOST = "mnm.quzalkexuyzs.workers.dev"
+database_name = "king-db"
+database_id = "6cc7faea-b60b-4b08-b324-0107df38194e"
