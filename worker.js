@@ -1,10 +1,7 @@
-import { connect } from 'cloudflare:sockets';
-
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
-    const search = url.search;
     const method = request.method;
     const host = url.hostname;
 
@@ -12,23 +9,34 @@ export default {
       return new Response("خطا: دیتابیس D1 متصل نشده است.", { status: 500 });  
     }  
 
-    // Ensure database tables exist safely on startup / request
-    ctx.waitUntil(initializeDatabase(env));
+    try {  
+      await env.DB.prepare(`  
+        CREATE TABLE IF NOT EXISTS settings (  
+          key TEXT PRIMARY KEY,  
+          value TEXT  
+        )  
+      `).run();  
 
-    // -----------------------------------------------------
-    // VLESS WEBSOCKET PROXY HANDLER (Dedicated Path & DB Check)
-    // -----------------------------------------------------
-    const upgradeHeader = request.headers.get("Upgrade");
-    if (upgradeHeader && upgradeHeader.toLowerCase() === "websocket") {
-      if (path === "/" || path === "/ws" || search.includes("ed=2048") || path.includes("ed=2048")) {
-        return handleVlessWebSocket(request, env);
-      }
-      return new Response("Invalid WebSocket Route", { status: 400 });
-    }
+      await env.DB.prepare(`  
+        CREATE TABLE IF NOT EXISTS users (  
+          id TEXT PRIMARY KEY,  
+          username TEXT,  
+          uuid TEXT,  
+          protocol TEXT,  
+          traffic TEXT,  
+          expire TEXT,  
+          port TEXT,  
+          tls TEXT,  
+          adblock TEXT,  
+          adult_block TEXT,  
+          status TEXT  
+        )  
+      `).run();  
+    } catch (error) {  
+      return json({ success: false, error: "خطای آماده‌سازی دیتابیس." }, 500);  
+    }  
 
-    // -----------------------------------------------------  
     // SECURE ADMIN AUTHENTICATION  
-    // -----------------------------------------------------  
     if (path.startsWith("/api/") || path === "/") {  
       const adminUser = env.ADMIN_USER;  
       const adminPass = env.ADMIN_PASSWORD;  
@@ -458,20 +466,6 @@ export default {
       return json({ success: true });  
     }  
 
-    // DIAGNOSTICS API  
-    if (path === "/api/diagnostics" && method === "GET") {  
-      const userCountRes = await env.DB.prepare("SELECT COUNT(*) as cnt FROM users").first();  
-      return json({  
-        success: true,  
-        d1Status: "متصل و عملیاتی",  
-        totalUsers: userCountRes?.cnt || 0,  
-        environment: {  
-          hasAdminUser: !!env.ADMIN_USER,  
-          connectionHost: connectionHost  
-        }  
-      });  
-    }  
-
     // CLOUDFLARE RANGES  
     if (path === "/api/cloudflare-ranges" && method === "GET") {  
       const [r4, r6] = await Promise.all([  
@@ -489,233 +483,6 @@ export default {
   }  
 };
 
-async function initializeDatabase(env) {
-  try {
-    await env.DB.prepare(`  
-      CREATE TABLE IF NOT EXISTS settings (  
-        key TEXT PRIMARY KEY,  
-        value TEXT  
-      )  
-    `).run();  
-
-    await env.DB.prepare(`  
-      CREATE TABLE IF NOT EXISTS users (  
-        id TEXT PRIMARY KEY,  
-        username TEXT,  
-        uuid TEXT,  
-        protocol TEXT,  
-        traffic TEXT,  
-        expire TEXT,  
-        port TEXT,  
-        tls TEXT,  
-        adblock TEXT,  
-        adult_block TEXT,  
-        status TEXT  
-      )  
-    `).run();  
-  } catch {}
-}
-
-// -----------------------------------------------------
-// VLESS WEBSOCKET CORE PROTOCOL HANDLER
-// -----------------------------------------------------
-async function handleVlessWebSocket(request, env) {
-  const webSocketPair = new WebSocketPair();
-  const [client, server] = Object.values(webSocketPair);
-
-  server.accept();
-
-  let remoteSocket = null;
-  let isConnected = false;
-  let hasTransmittedHeader = false;
-
-  const logError = (context, err) => {};
-
-  server.addEventListener("message", async event => {
-    try {
-      const message = event.data;
-      if (!hasTransmittedHeader) {
-        hasTransmittedHeader = true;
-        const { hasError, message: errMsg, remoteAddress, remotePort, rawDataIndex, uuid } = parseVlessHeader(message);
-        
-        if (hasError) {
-          server.close(1003, errMsg);
-          return;
-        }
-
-        const dbUser = await env.DB.prepare("SELECT * FROM users WHERE uuid = ? AND status = 'active'").bind(uuid).first();
-        if (!dbUser) {
-          server.close(1003, "User not found, disabled, or expired");
-          return;
-        }
-
-        remoteSocket = connect({ hostname: remoteAddress, port: remotePort });
-
-        remoteSocket.readable.pipeTo(new WritableStream({
-          write(chunk) {
-            try {
-              if (server.readyState === WebSocket.OPEN) {
-                server.send(chunk);
-              }
-            } catch (err) {
-              logError("pipeTo stream write", err);
-            }
-          },
-          close() {
-            safeCloseWebSocket(server);
-          },
-          abort(reason) {
-            safeCloseWebSocket(server);
-          }
-        })).catch(err => logError("pipeTo catch", err));
-
-        isConnected = true;
-
-        if (rawDataIndex < message.byteLength) {
-          const writer = remoteSocket.writable.getWriter();
-          await writer.write(message.slice(rawDataIndex));
-          writer.releaseLock();
-        }
-      } else if (isConnected && remoteSocket) {
-        const writer = remoteSocket.writable.getWriter();
-        await writer.write(message);
-        writer.releaseLock();
-      }
-    } catch (err) {
-      logError("server message handler", err);
-      safeCloseWebSocket(server);
-    }
-  });
-
-  server.addEventListener("close", () => {
-    safeCloseRemoteSocket(remoteSocket);
-  });
-
-  server.addEventListener("error", () => {
-    safeCloseRemoteSocket(remoteSocket);
-  });
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client
-  });
-}
-
-function parseVlessHeader(buffer) {
-  if (buffer.byteLength < 24) {
-    return { hasError: true, message: "Buffer too small for VLESS header" };
-  }
-
-  const view = new DataView(buffer);
-  
-  const version = view.getUint8(0);
-  if (version !== 0) {
-    return { hasError: true, message: "Unsupported VLESS version" };
-  }
-
-  const uuidBytes = new Uint8Array(buffer, 1, 16);
-  const uuid = bytesToUuid(uuidBytes);
-
-  const addonLength = view.getUint8(17);
-  const commandIndex = 18 + addonLength;
-  
-  if (buffer.byteLength <= commandIndex) {
-    return { hasError: true, message: "Malformed VLESS command index" };
-  }
-
-  const command = view.getUint8(commandIndex);
-  if (command !== 1) {
-    return { hasError: true, message: "Only TCP forwarding command is supported" };
-  }
-
-  let portIndex = commandIndex + 1;
-  if (buffer.byteLength < portIndex + 2) {
-    return { hasError: true, message: "Malformed VLESS port index" };
-  }
-  const remotePort = view.getUint16(portIndex);
-  
-  let addressTypeIndex = portIndex + 2;
-  if (buffer.byteLength <= addressTypeIndex) {
-    return { hasError: true, message: "Malformed VLESS address type" };
-  }
-  const addressType = view.getUint8(addressTypeIndex);
-
-  let addressIndex = addressTypeIndex + 1;
-  let remoteAddress = "";
-
-  if (addressType === 1) {
-    if (buffer.byteLength < addressIndex + 4) {
-      return { hasError: true, message: "Malformed IPv4 address" };
-    }
-    remoteAddress = [
-      view.getUint8(addressIndex),
-      view.getUint8(addressIndex + 1),
-      view.getUint8(addressIndex + 2),
-      view.getUint8(addressIndex + 3)
-    ].join(".");
-    addressIndex += 4;
-  } else if (addressType === 2) {
-    const domainLength = view.getUint8(addressIndex);
-    addressIndex += 1;
-    if (buffer.byteLength < addressIndex + domainLength) {
-      return { hasError: true, message: "Malformed domain name" };
-    }
-    const domainBytes = new Uint8Array(buffer, addressIndex, domainLength);
-    remoteAddress = new TextDecoder().decode(domainBytes);
-    addressIndex += domainLength;
-  } else if (addressType === 3) {
-    if (buffer.byteLength < addressIndex + 16) {
-      return { hasError: true, message: "Malformed IPv6 address" };
-    }
-    const ipv6Segments = [];
-    for (let i = 0; i < 8; i++) {
-      ipv6Segments.push(view.getUint16(addressIndex + (i * 2)).toString(16));
-    }
-    remoteAddress = ipv6Segments.join(":");
-    addressIndex += 16;
-  } else {
-    return { hasError: true, message: "Unknown address type in VLESS header" };
-  }
-
-  return {
-    hasError: false,
-    uuid,
-    remoteAddress,
-    remotePort,
-    rawDataIndex: addressIndex
-  };
-}
-
-function bytesToUuid(bytes) {
-  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0'));
-  return [
-    hex.slice(0, 4).join(''),
-    hex.slice(4, 6).join(''),
-    hex.slice(6, 8).join(''),
-    hex.slice(8, 10).join(''),
-    hex.slice(10, 16).join('')
-  ].join('-');
-}
-
-function safeCloseWebSocket(socket) {
-  try {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-      socket.close();
-    }
-  } catch {}
-}
-
-function safeCloseRemoteSocket(socket) {
-  try {
-    if (socket) {
-      socket.close();
-    }
-  } catch {}
-}
-
-// -----------------------------------------------------
-// HELPER FUNCTIONS & DASHBOARD HTML
-// -----------------------------------------------------
 function json(data, status = 200) {  
   return new Response(JSON.stringify(data), {  
     status,  
