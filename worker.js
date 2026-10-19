@@ -119,7 +119,6 @@ const activeCleanIp = activeRow?.value || connectionHost;
 const echEnabled = echEnabledRow?.value === "true";  
 const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";  
   
-// اصلاح اصلی: مقدار پیش‌فرض تنها در صورت صریح بودن برابر true می‌شود  
 const fragEnabled = fragEnabledRow?.value === "true";  
 const fragLen = fragLenRow?.value || "100-200";  
 const fragInt = fragIntRow?.value || "10-20";  
@@ -194,7 +193,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
   const name = encodeURIComponent(user.username);  
   let config = "";  
 
-  // پارامترهای فرگمنت و ECH تنها در صورت فعال بودن صریح اعمال می‌شوند  
   const fragmentParam = fragEnabled ? `&packet=tls&length=${fragLen}&interval=${fragInt}` : "";  
   const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss")   
     ? `&ech=${encodeURIComponent(echValue)}`   
@@ -535,12 +533,12 @@ headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-stor
 
 function escapeHtml(val) {
 return String(val ?? "").replace(/[&<>"']/g, c => ({
-"&": "&", "<": "<", ">": ">", '"': """, "'": "'"
+"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 })[c]);
 }
 
 function yamlEscape(val) {
-return String(val ?? "").replace(/\/g, "\\").replace(/"/g, '\"');
+return String(val ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function isValidIPv4(ip) {
@@ -1066,4 +1064,4 @@ openDiagnostics = function() {
 loadAll();  
 </script>  </body>  
 </html>`;  
-        }
+}
