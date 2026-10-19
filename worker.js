@@ -1,5 +1,5 @@
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -199,15 +199,14 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
-      const fragmentParam = fragEnabled ? `&packet=tls&length=${encodeURIComponent(fragLen)}&interval=${encodeURIComponent(fragInt)}` : "";
       const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss")
         ? `&ech=${encodeURIComponent(echValue)}`
         : "";
 
       if (protocol === "vless") {
-        config = `vless://${user.uuid}@${activeCleanIp}:${port}?encryption=none&security=tls&sni=${encodeURIComponent(connectionHost)}&fp=chrome&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${fragmentParam}${echParam}#${name}`;
+        config = `vless://${user.uuid}@${activeCleanIp}:${port}?encryption=none&security=tls&sni=${encodeURIComponent(connectionHost)}&fp=chrome&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${echParam}#${name}`;
       } else if (protocol === "trojan") {
-        config = `trojan://${user.uuid}@${activeCleanIp}:${port}?security=tls&sni=${encodeURIComponent(connectionHost)}&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${fragmentParam}${echParam}#${name}`;
+        config = `trojan://${user.uuid}@${activeCleanIp}:${port}?security=tls&sni=${encodeURIComponent(connectionHost)}&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${echParam}#${name}`;
       } else if (protocol === "shadowsocks" || protocol === "ss") {
         const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
         config = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
@@ -233,10 +232,7 @@ export default {
           '      path: "/?ed=2048"',
           "      headers:",
           `        Host: "${yamlEscape(connectionHost)}"`,
-          "    client-fingerprint: chrome",
-          fragEnabled ? "    fragment: tls" : "",
-          fragEnabled ? `    fragment-length: ${yamlEscape(fragLen)}` : "",
-          fragEnabled ? `    fragment-interval: ${yamlEscape(fragInt)}` : ""
+          "    client-fingerprint: chrome"
         ].filter(Boolean).join("\n");
 
         return new Response(yaml, {
@@ -672,13 +668,7 @@ input:checked + .slider:before { transform: translateX(22px); }
     <label>بازه فرگمنت (Interval ms)</label>
     <input id="frag-int-input" placeholder="10-20" value="10-20">
     <div class="warning-box">
-      ⚠️ برای حداکثر پایداری، مطمئن شوید که از یک IP تمیز سالم استفاده می‌کنید.
-    </div>
-    <label style="margin-top:10px;display:block;">پیشنهاد اپراتورها:</label>
-    <div class="preset-grid">
-      <div class="preset-btn" onclick="setPreset('10-30', '2-5')">🟢 همراه اول</div>
-      <div class="preset-btn" onclick="setPreset('100-200', '5-10')">🟡 ایرانسل</div>
-      <div class="preset-btn" onclick="setPreset('50-100', '2-5')">🟣 رایتل</div>
+      ⚠️ برای حداکثر پایداری، از یک IP تمیز معتبر استفاده کنید.
     </div>
     <div class="row" style="margin-top:15px;">
       <button class="teal" onclick="saveFragmentSettings()">ذخیره فرگمنت</button>
@@ -760,12 +750,6 @@ function esc(value) {
 
 function toggleBody(id) {
   document.getElementById(id).classList.toggle("show");
-}
-
-function setPreset(len, intVal) {
-  document.getElementById("frag-len-input").value = len;
-  document.getElementById("frag-int-input").value = intVal;
-  alert("مقادیر پیشنهادی اپراتور اعمال شد. روی ذخیره فرگمنت کلیک کنید.");
 }
 
 async function saveEchSettings(isToggleOnly = false) {
