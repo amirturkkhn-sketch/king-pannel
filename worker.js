@@ -199,16 +199,15 @@ export default {
       const name = encodeURIComponent(user.username);
       let config = "";
 
-      // ساخت پارامترهای پیشرفته جهت سازگاری حداکثری با کلاینت‌های قدرتمند
       const fragmentParam = fragEnabled ? `&packet=tls&length=${encodeURIComponent(fragLen)}&interval=${encodeURIComponent(fragInt)}` : "";
       const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss")
         ? `&ech=${encodeURIComponent(echValue)}`
         : "";
 
       if (protocol === "vless") {
-        config = `vless://${user.uuid}@${activeCleanIp}:${port}?encryption=none&security=tls&sni=${encodeURIComponent(connectionHost)}&fp=chrome&type=ws&host=${encodeURIComponent(connectionHost)}&path=\%2F\%3Fed\%3D2048${fragmentParam}${echParam}#${name}`;
+        config = `vless://${user.uuid}@${activeCleanIp}:${port}?encryption=none&security=tls&sni=${encodeURIComponent(connectionHost)}&fp=chrome&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${fragmentParam}${echParam}#${name}`;
       } else if (protocol === "trojan") {
-        config = `trojan://${user.uuid}@${activeCleanIp}:${port}?security=tls&sni=${encodeURIComponent(connectionHost)}&type=ws&host=${encodeURIComponent(connectionHost)}&path=\%2F\%3Fed\%3D2048${fragmentParam}${echParam}#${name}`;
+        config = `trojan://${user.uuid}@${activeCleanIp}:${port}?security=tls&sni=${encodeURIComponent(connectionHost)}&type=ws&host=${encodeURIComponent(connectionHost)}&path=%2F%3Fed%3D2048${fragmentParam}${echParam}#${name}`;
       } else if (protocol === "shadowsocks" || protocol === "ss") {
         const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
         config = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
@@ -867,4 +866,203 @@ function renderUsersList(list) {
         '<button class="outline" onclick="toggleUserStatus(\\'' + esc(u.id) + '\\', \\'' + esc(u.status) + '\\')">' + (u.status === 'disabled' ? '✅ فعال‌سازی' : '⛔ غیرفعال‌سازی') + '</button>' +
         '<button class="outline" onclick="regenUuid(\\'' + esc(u.id) + '\\')">🔄 بازسازی UUID</button>' +
         '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">✏️ ویرایش</button>' +
-        '<button class="danger" onclick="deleteUser(\\'' + esc
+        '<button class="danger" onclick="deleteUser(\\'' + esc(u.id) + '\\')">🗑️ حذف</button>' +
+      '</div>' +
+      '</article>';
+  }).join("");
+}
+
+function copyText(text, msg) {
+  navigator.clipboard.writeText(text).then(() => alert(msg)).catch(() => alert("خطا در کپی کردن."));
+}
+
+function openUser() {
+  document.getElementById("user-form").reset();
+  document.getElementById("edit-id").value = "";
+  document.getElementById("username").disabled = false;
+  document.getElementById("user-title").textContent = "ایجاد کاربر جدید";
+  document.getElementById("user-dialog").showModal();
+}
+
+function editUser(id) {
+  const u = usersCache.find(x => x.id === id);
+  if (!u) return;
+  document.getElementById("edit-id").value = u.id;
+  document.getElementById("username").value = u.username;
+  document.getElementById("username").disabled = true;
+  document.getElementById("protocol").value = u.protocol || "VLESS";
+  document.getElementById("port").value = u.port || "443";
+  document.getElementById("traffic").value = parseInt(u.traffic) || 100;
+  document.getElementById("expire").value = parseInt(u.expire) || 30;
+  document.getElementById("status").value = u.status || "active";
+  document.getElementById("user-title").textContent = "ویرایش کاربر";
+  document.getElementById("user-dialog").showModal();
+}
+
+document.getElementById("user-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = document.getElementById("edit-id").value;
+  const payload = {
+    username: document.getElementById("username").value,
+    protocol: document.getElementById("protocol").value,
+    port: document.getElementById("port").value,
+    traffic: document.getElementById("traffic").value,
+    expire: document.getElementById("expire").value,
+    status: document.getElementById("status").value
+  };
+  if (id) payload.id = id;
+
+  try {
+    const res = await api("/api/users", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || "عملیات موفقیت‌آمیز بود.");
+    document.getElementById("user-dialog").close();
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+});
+
+async function toggleUserStatus(id, currentStatus) {
+  const nextStatus = currentStatus === "disabled" ? "active" : "disabled";
+  try {
+    await api("/api/users/status/" + encodeURIComponent(id), {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ status: nextStatus })
+    });
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function regenUuid(id) {
+  if (!confirm("آیا از بازسازی UUID این کاربر اطمینان دارید؟ اتصال‌های قبلی قطع خواهند شد.")) return;
+  try {
+    const res = await api("/api/users/regen/" + encodeURIComponent(id), { method: "POST" });
+    alert(res.message);
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm("آیا از حذف این کاربر اطمینان دارید؟")) return;
+  try {
+    await api("/api/users/" + encodeURIComponent(id), { method: "DELETE" });
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+function openIps() {
+  document.getElementById("ip-dialog").showModal();
+  renderIps();
+}
+
+function renderIps() {
+  const root = document.getElementById("ip-list");
+  if (!ipsCache.length) {
+    root.innerHTML = '<p class="muted">مخزن IP خالی است.</p>';
+    return;
+  }
+  root.innerHTML = ipsCache.map(item =>
+    '<div class="ip row"><code>' + esc(item.ip) + '</code>' +
+    '<div><button class="gold" onclick="selectIp(\\'' + esc(item.ip) + '\\')">انتخاب و فعال‌سازی</button>' +
+    '<button class="danger" onclick="deleteIp(\\'' + esc(item.id) + '\\')">حذف</button></div></div>'
+  ).join("");
+}
+
+async function saveIp() {
+  const ip = document.getElementById("ip-input").value.trim();
+  if (!ip) return alert("لطفاً IP معتبری وارد کنید.");
+  try {
+    await api("/api/set-clean-ip", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ip})
+    });
+    document.getElementById("ip-input").value = "";
+    loadAll();
+    alert("IP ذخیره و فعال شد.");
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function importIps() {
+  const ips = document.getElementById("bulk-ips").value;
+  try {
+    const data = await api("/api/import-ips", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ips})
+    });
+    loadAll();
+    alert("تعداد " + data.saved + " IP با موفقیت ایمپورت شد.");
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function selectIp(ip) {
+  try {
+    await api("/api/select-clean-ip", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ip})
+    });
+    loadAll();
+    alert("IP فعال با موفقیت تغییر کرد.");
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function deleteIp(id) {
+  if (!confirm("این IP از مخزن حذف شود؟")) return;
+  try {
+    await api("/api/delete-ip/" + encodeURIComponent(id), { method: "DELETE" });
+    loadAll();
+  } catch(e) {
+    alert("خطا: " + e.message);
+  }
+}
+
+async function getRanges() {
+  const root = document.getElementById("range-output");
+  root.textContent = "در حال دریافت محدوده‌های رسمی...";
+  try {
+    const data = await api("/api/cloudflare-ranges");
+    const ips = [...data.ipv4, ...data.ipv6];
+    document.getElementById("bulk-ips").value = ips.join("\n");
+    root.textContent = "محدوده‌های رسمی دریافت شدند: " + data.ipv4.length + " محدوده IPv4 و " + data.ipv6.length + " محدوده IPv6.";
+  } catch(e) {
+    root.textContent = "خطا در دریافت محدوده‌ها: " + e.message;
+  }
+}
+
+openDiagnostics = function() {
+  const diag = document.getElementById("diag-content");
+  diag.innerHTML =
+    "• وضعیت پایگاه داده D1: <b>متصل و عملیاتی</b><br>" +
+    "• آدرس پنل عمومی: <b>" + esc(publicUrl) + "</b><br>" +
+    "• هاست اتصال (Connection Host): <b>" + esc(systemInfo.connectionHost || '-') + "</b><br>" +
+    "• IP فعال کنونی: <b>" + esc(systemInfo.activeCleanIp || '-') + "</b><br>" +
+    "• وضعیت ECH: <b>" + (systemInfo.echSettings?.enabled ? "فعال" : "غیرفعال") + "</b><br>" +
+    "• وضعیت Fragment: <b>" + (systemInfo.fragmentSettings?.enabled ? "فعال" : "غیرفعال") + "</b><br>" +
+    "• کل کاربران ثبت‌شده: <b>" + (systemInfo.metrics?.total || 0) + "</b>";
+  document.getElementById("diag-dialog").showModal();
+};
+
+loadAll();
+</script>
+</body>
+</html>`;
+}
