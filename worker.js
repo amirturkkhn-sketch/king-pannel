@@ -121,18 +121,23 @@ if (path === "/owner" || path.startsWith("/api/")) {
       <style>    
         :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af}    
         body{margin:0;padding:0;background:radial-gradient(circle at center, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}    
-        .login-card{background:var(--card);border:1px solid rgba(245,158,11,0.3);border-radius:24px;padding:40px;width:100%;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(139,92,246,0.15);position:relative;overflow:hidden}    
+        .login-card{background:var(--card);border:1px solid rgba(245,158,11,0.3);border-radius:24px;padding:40px;width:100%;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(139,92,246,0.15);position:relative;overflow:hidden;animation:fadeIn 0.5s ease-out}    
+        @keyframes fadeIn{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}    
         .login-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--gold), var(--purple))}    
         h1{color:var(--gold);font-size:24px;margin-bottom:10px;text-shadow:0 0 15px rgba(245,158,11,0.3)}    
         p{color:var(--muted);font-size:14px;margin-bottom:25px}    
         .badge{background:rgba(245,158,11,0.12);color:var(--gold);padding:6px 14px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:20px;border:1px solid rgba(245,158,11,0.3);font-weight:bold}    
-        input{width:100%;padding:12px;background:#030508;color:white;border:1px solid var(--border);border-radius:10px;margin:8px 0 16px;text-align:right}    
-        input:focus{border-color:var(--gold);outline:none;box-shadow:0 0 10px rgba(245,158,11,0.2)}    
-        .btn{width:100%;background:linear-gradient(135deg, var(--gold), #d97706);color:#111;border:0;padding:12px;border-radius:10px;font-weight:bold;cursor:pointer;font-size:15px;margin-top:10px}    
-        .btn:hover{filter:brightness(1.1)}    
+        .input-group{position:relative;margin-bottom:16px}    
+        input{width:100%;padding:12px 16px;background:#030508;color:white;border:1px solid var(--border);border-radius:10px;text-align:right;font-size:14px;transition:0.2s}    
+        input:focus{border-color:var(--gold);outline:none;box-shadow:0 0 15px rgba(245,158,11,0.25)}    
+        .toggle-password{position:absolute;left:14px;top:50%;transform:translateY(-50%);background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px}    
+        .toggle-password:hover{color:var(--gold)}    
+        .btn{width:100%;background:linear-gradient(135deg, var(--gold), #d97706);color:#111;border:0;padding:12px;border-radius:10px;font-weight:bold;cursor:pointer;font-size:15px;margin-top:10px;box-shadow:0 4px 15px rgba(245,158,11,0.3);transition:0.2s}    
+        .btn:hover{filter:brightness(1.1);transform:scale(1.02)}    
         .back-link{display:inline-block;margin-top:20px;color:var(--muted);font-size:13px;text-decoration:none;transition:0.2s}    
         .back-link:hover{color:var(--gold)}    
-        .error-msg{color:#ef4444;font-size:13px;margin-top:10px;display:none}    
+        .error-msg{color:#ef4444;font-size:13px;margin-top:12px;display:none;animation:shake 0.3s}    
+        @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}    
       </style>    
       </head>    
       <body>    
@@ -141,14 +146,23 @@ if (path === "/owner" || path.startsWith("/api/")) {
           <h1>احراز هویت ادمین</h1>    
           <p>لطفاً برای ورود به پنل مدیریت، اطلاعات دسترسی خود را وارد کنید.</p>    
           <form onsubmit="handleLogin(event)">    
-            <input type="text" id="username" placeholder="نام کاربری ادمین" required autocomplete="username">    
-            <input type="password" id="password" placeholder="کلمه عبور" required autocomplete="current-password">    
+            <div class="input-group">    
+              <input type="text" id="username" placeholder="نام کاربری ادمین" required autocomplete="username">    
+            </div>    
+            <div class="input-group">    
+              <input type="password" id="password" placeholder="کلمه عبور" required autocomplete="current-password">    
+              <button type="button" class="toggle-password" onclick="togglePass()">👁️</button>    
+            </div>    
             <button type="submit" class="btn">ورود به پنل مدیریت</button>    
             <div id="error" class="error-msg">نام کاربری یا کلمه عبور اشتباه است.</div>    
           </form>    
           <a href="/" class="back-link">← بازگشت به صفحه اصلی</a>    
         </div>    
         <script>      
+        function togglePass() {
+          const p = document.getElementById('password');
+          p.type = p.type === 'password' ? 'text' : 'password';
+        }
         async function handleLogin(e) {      
           e.preventDefault();      
           const u = document.getElementById('username').value;      
