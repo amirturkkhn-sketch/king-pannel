@@ -36,8 +36,13 @@ try {
   return json({ success: false, error: "خطای آماده‌سازی دیتابیس." }, 500);    
 }    
 
-// SECURE ADMIN AUTHENTICATION    
-if (path.startsWith("/api/") || path === "/") {    
+// LANDING PAGE ROUTE
+if (path === "/") {
+  return html(landingPage());
+}
+
+// OWNER LOGIN / DASHBOARD AUTHENTICATION
+if (path === "/owner" || path.startsWith("/api/")) {    
   const adminUser = env.ADMIN_USER;    
   const adminPass = env.ADMIN_PASSWORD;    
 
@@ -56,21 +61,25 @@ if (path.startsWith("/api/") || path === "/") {
       <head>    
       <meta charset="utf-8">    
       <meta name="viewport" content="width=device-width,initial-scale=1">    
-      <title>ورود به KING PANEL</title>    
+      <title>ورود مدیریت - KING PANEL</title>    
       <style>    
-        :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af}    
-        body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}    
-        .login-card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:35px;width:100%;max-width:400px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5)}    
-        h1{color:var(--gold);font-size:24px;margin-bottom:10px}    
+        :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af}    
+        body{margin:0;padding:0;background:radial-gradient(circle at center, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}    
+        .login-card{background:var(--card);border:1px solid rgba(245,158,11,0.3);border-radius:24px;padding:40px;width:100%;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(139,92,246,0.15);position:relative;overflow:hidden}    
+        .login-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--gold), var(--purple))}    
+        h1{color:var(--gold);font-size:24px;margin-bottom:10px;text-shadow:0 0 15px rgba(245,158,11,0.3)}    
         p{color:var(--muted);font-size:14px;margin-bottom:25px}    
-        .badge{background:rgba(245,158,11,0.1);color:var(--gold);padding:6px 12px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:20px}    
+        .badge{background:rgba(245,158,11,0.12);color:var(--gold);padding:6px 14px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:20px;border:1px solid rgba(245,158,11,0.3);font-weight:bold}    
+        .back-link{display:inline-block;margin-top:20px;color:var(--muted);font-size:13px;text-decoration:none;transition:0.2s}    
+        .back-link:hover{color:var(--gold)}    
       </style>    
       </head>    
       <body>    
         <div class="login-card">    
-          <span class="badge">👑 KING PANEL 👑</span>    
-          <h1>خوش آمدید مدیریت عزیز</h1>    
-          <p>لطفاً برای ورود به پنل، اطلاعات دسترسی خود را وارد کنید.</p>    
+          <span class="badge">👑 بخش مدیریت ارشد 👑</span>    
+          <h1>احراز هویت ادمین</h1>    
+          <p>لطفاً برای ورود به پنل مدیریت، اطلاعات دسترسی خود را وارد کنید.</p>    
+          <a href="/" class="back-link">← بازگشت به صفحه اصلی</a>    
         </div>    
       </body>    
       </html>    
@@ -78,7 +87,7 @@ if (path.startsWith("/api/") || path === "/") {
       status: 401,    
       headers: {    
         "Content-Type": "text/html; charset=UTF-8",    
-        "WWW-Authenticate": 'Basic realm="KING PANEL"'    
+        "WWW-Authenticate": 'Basic realm="KING PANEL OWNER"'    
       }    
     });    
   }    
@@ -100,6 +109,11 @@ if (path.startsWith("/api/") || path === "/") {
     return new Response("Invalid authentication encoding", { status: 400 });    
   }    
 }    
+
+// USER PORTAL ROUTE
+if (path === "/user") {
+  return html(userPortal(host, publicUrl));
+}
 
 // دریافت تنظیمات از دیتابیس    
 const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([    
@@ -512,6 +526,109 @@ function makeIpKey(ip) {
 return "ip_" + ip.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
+function landingPage() {
+return `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ورود به KING PANEL</title>
+<style>
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af;--teal:#14b8a6}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:radial-gradient(circle at center, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.container{width:100%;max-width:850px;text-align:center}
+.badge{background:rgba(245,158,11,0.12);color:var(--gold);padding:8px 18px;border-radius:30px;font-size:13px;display:inline-block;margin-bottom:25px;border:1px solid rgba(245,158,11,0.3);font-weight:bold;box-shadow:0 0 20px rgba(245,158,11,0.15)}
+h1{font-size:clamp(28px, 5vw, 42px);color:var(--gold);margin:0 0 10px 0;text-shadow:0 0 25px rgba(245,158,11,0.3)}
+p.subtitle{color:var(--muted);font-size:clamp(14px, 2vw, 16px);margin-bottom:45px}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:25px;margin-top:20px}
+.portal-card{background:var(--card);border:1px solid var(--border);border-radius:24px;padding:40px 30px;text-decoration:none;color:var(--text);display:flex;flex-direction:column;align-items:center;transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);position:relative;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+.portal-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;transition:0.3s}
+.owner-card::before{background:linear-gradient(90deg, var(--gold), var(--purple))}
+.user-card::before{background:linear-gradient(90deg, var(--teal), var(--purple))}
+.portal-card:hover{transform:translateY(-8px);border-color:rgba(245,158,11,0.5);box-shadow:0 20px 40px rgba(0,0,0,0.7), 0 0 30px rgba(139,92,246,0.2)}
+.icon{font-size:52px;margin-bottom:20px;filter:drop-shadow(0 0 10px rgba(255,255,150,0.2))}
+.portal-card h2{font-size:24px;margin:0 0 12px 0}
+.owner-card h2{color:var(--gold)}
+.user-card h2{color:var(--teal)}
+.portal-card p{color:var(--muted);font-size:14px;margin:0;line-height:1.6}
+.btn-action{margin-top:25px;padding:10px 24px;border-radius:12px;font-weight:bold;font-size:14px;transition:0.2s}
+.owner-card .btn-action{background:linear-gradient(135deg, var(--gold), #d97706);color:#111;box-shadow:0 4px 15px rgba(245,158,11,0.3)}
+.user-card .btn-action{background:linear-gradient(135deg, var(--teal), #0d9488);color:#111;box-shadow:0 4px 15px rgba(20,184,166,0.3)}
+.portal-card:hover .btn-action{filter:brightness(1.1);transform:scale(1.05)}
+</style>
+</head>
+<body>
+<div class="container">
+  <span class="badge">👑 KING PANEL PLATFORM 👑</span>
+  <h1>به پنل قدرتمند کینگ خوش آمدید</h1>
+  <p class="subtitle">لطفاً برای ورود به بخش مدیریت یا پنل کاربری، یکی از گزینه‌های زیر را انتخاب کنید.</p>
+  
+  <div class="cards-grid">
+    <a href="/owner" class="portal-card owner-card">
+      <div class="icon">👑</div>
+      <h2>OWNER</h2>
+      <p>ورود به پنل مدیریت ارشد جهت کنترل کاربران، تنظیمات پروتکل‌ها و مدیریت مخزن IP</p>
+      <span class="btn-action">ورود به مدیریت</span>
+    </a>
+
+    <a href="/user" class="portal-card user-card">
+      <div class="icon">👤</div>
+      <h2>USER</h2>
+      <p>مشاهده راهنمای اتصال، وضعیت سرویس و دسترسی به اطلاعات عمومی اشتراک‌ها</p>
+      <span class="btn-action">ورود به بخش کاربر</span>
+    </a>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+function userPortal(host, publicUrl) {
+return `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>بخش کاربری - KING PANEL</title>
+<style>
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--teal:#14b8a6;--text:#f3f4f6;--muted:#9ca3af}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+main{max-width:800px;margin:auto}
+header{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:25px;display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+h1{font-size:22px;color:var(--teal);margin:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:25px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+h2{font-size:18px;color:var(--gold);margin-top:0}
+p{color:var(--muted);line-height:1.8;font-size:14px}
+.button{border:0;border-radius:10px;padding:10px 18px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;font-size:13px;transition:0.2s}
+.teal{background:var(--teal);color:#111}
+.outline{background:#111827;color:white;border:1px solid var(--border)}
+.outline:hover{border-color:var(--teal)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>👤 پورتال عمومی کاربران</h1>
+    <a href="/" class="button outline">← بازگشت به صفحه اصلی</a>
+  </header>
+  
+  <div class="card">
+    <h2>راهنمای اتصال به سرویس</h2>
+    <p>کاربر گرامی، برای اتصال به سرویس خود، لینک اشتراک (Subscription) اختصاصی خود را که از مدیر دریافت کرده‌اید در نرم‌افزارهای معتبر مانند V2Box، MahsaNG، NekoBox یا Streisand وارد کنید.</p>
+    <p>تمامی پروکسی‌ها و تنظیمات به صورت خودکار بارگذاری خواهند شد.</p>
+  </div>
+
+  <div class="card">
+    <h2>پشتیبانی و وضعیت</h2>
+    <p>در صورت داشتن هرگونه سوال یا نیاز به پشتیبانی، می‌توانید با مدیر سیستم در ارتباط باشید تا لینک اشتراک یا اطلاعات اتصال جدید برای شما صادر گردد.</p>
+  </div>
+</main>
+</body>
+</html>`;
+}
+
 function dashboard(host, publicUrl) {
 const safeHost = JSON.stringify(host);
 const safePublicUrl = JSON.stringify(publicUrl);
@@ -521,35 +638,38 @@ return `<!doctype html>
 <head>      
 <meta charset="utf-8">      
 <meta name="viewport" content="width=device-width,initial-scale=1">      
-<title>KING PANEL</title>      
+<title>مدیریت - KING PANEL</title>      
 <style>      
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;--teal:#14b8a6}      
 *{box-sizing:border-box}      
-body{margin:0;padding:15px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}      
+body{margin:0;padding:15px;background:radial-gradient(circle at top, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif}      
 main{max-width:1100px;margin:auto}      
-header,.card,.toolbar,.box{background:var(--card);border:1px solid var(--border);border-radius:15px;padding:17px;margin-bottom:15px}      
+header,.card,.toolbar,.box{background:var(--card);border:1px solid rgba(139,92,246,0.2);border-radius:18px;padding:20px;margin-bottom:15px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}      
 header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}      
-h1{font-size:21px;color:var(--gold);margin:0}      
+h1{font-size:22px;color:var(--gold);margin:0;text-shadow:0 0 10px rgba(245,158,11,0.2)}      
 h2{font-size:16px}      
 .muted{color:var(--muted);font-size:12px}      
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:15px}      
-.stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:12px}      
+.stat{background:var(--card);border:1px solid var(--border);padding:16px;border-radius:14px;box-shadow:0 5px 15px rgba(0,0,0,0.3)}      
 .stat b{display:block;font-size:22px;color:var(--gold);margin-top:6px}      
 .toolbar{display:flex;gap:10px;flex-wrap:wrap}      
-input,select,textarea{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:9px;margin:5px 0 12px}      
+input,select,textarea{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:10px;margin:5px 0 12px;transition:0.2s}      
+input:focus,select:focus,textarea:focus{border-color:var(--gold);outline:none;box-shadow:0 0 10px rgba(245,158,11,0.2)}      
 textarea{min-height:110px}      
-button,.button{border:0;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;margin:3px;font-size:13px}      
-.gold{background:var(--gold);color:#111}      
-.teal{background:var(--teal);color:#111}      
+button,.button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;margin:3px;font-size:13px;transition:0.2s}      
+button:hover{filter:brightness(1.1);transform:translateY(-1px)}      
+.gold{background:linear-gradient(135deg, var(--gold), #d97706);color:#111;box-shadow:0 4px 12px rgba(245,158,11,0.25)}      
+.teal{background:linear-gradient(135deg, var(--teal), #0d9488);color:#111;box-shadow:0 4px 12px rgba(20,184,166,0.25)}      
 .outline{background:#111827;color:white;border:1px solid var(--border)}      
-.danger{background:#451a1a;color:#fecaca}      
-.user{background:var(--card);border:1px solid var(--border);border-radius:13px;padding:15px;margin:12px 0;overflow-wrap:anywhere}      
+.outline:hover{border-color:var(--purple)}      
+.danger{background:linear-gradient(135deg, #7f1d1d, #991b1b);color:#fecaca}      
+.user{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin:12px 0;overflow-wrap:anywhere;box-shadow:0 5px 15px rgba(0,0,0,0.3)}      
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}      
-.tag{font-size:12px;color:var(--green)}      
+.tag{font-size:12px;color:var(--green);background:rgba(16,185,129,0.1);padding:4px 10px;border-radius:20px;border:1px solid rgba(16,185,129,0.2)}      
 .ip{padding:10px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}      
-dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--gold);border-radius:15px}      
+dialog{width:min(650px,95vw);max-height:90vh;overflow:auto;background:var(--card);color:white;border:1px solid var(--purple);border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,0.8)}      
 dialog::backdrop{background:#000b}    
-.config-card { background: #07111e; border: 1px solid #132238; border-radius: 14px; padding: 15px; margin-bottom: 15px; }    
+.config-card { background: #07111e; border: 1px solid rgba(20,184,166,0.3); border-radius: 16px; padding: 18px; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }    
 .config-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }    
 .switch { position: relative; display: inline-block; width: 46px; height: 24px; }    
 .switch input { opacity: 0; width: 0; height: 0; }    
@@ -560,15 +680,18 @@ input:checked + .slider:before { transform: translateX(22px); }
 .config-body { margin-top: 15px; display: none; border-top: 1px solid var(--border); padding-top: 15px; }    
 .config-body.show { display: block; }    
 .preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }    
-.preset-btn { background: #0d1522; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 8px; cursor: pointer; font-size: 11px; text-align: center; }    
-.preset-btn:hover { border-color: var(--teal); }    
+.preset-btn { background: #0d1522; border: 1px solid var(--border); color: var(--text); padding: 9px; border-radius: 9px; cursor: pointer; font-size: 11px; text-align: center; transition: 0.2s; }    
+.preset-btn:hover { border-color: var(--teal); background: rgba(20,184,166,0.1); }    
 </style>    
 </head>      
 <body>      
 <main>      
 <header>      
-  <h1>👑 KING PANEL</h1>      
-  <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>      
+  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد</span></h1>      
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>      
+    <a href="/" class="button outline" style="margin:0;padding:6px 12px;font-size:12px;">← صفحه اصلی</a>
+  </div>
 </header>    
 <section class="stats">      
   <div class="stat">کل کاربران<b id="total">0</b></div>      
@@ -576,7 +699,7 @@ input:checked + .slider:before { transform: translateX(22px); }
   <div class="stat">غیرفعال<b id="disabled">0</b></div>      
   <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>      
 </section>    
-<div class="toolbar" style="background:var(--card);border:1px solid var(--border);border-radius:15px;padding:15px;margin-bottom:15px;">      
+<div class="toolbar" style="background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;margin-bottom:15px;">      
   <input id="search-input" placeholder="🔍 جستجوی نام کاربری..." oninput="filterUsers()" style="margin:0;flex:2;min-width:200px;">      
   <select id="filter-status" onchange="filterUsers()" style="margin:0;flex:1;min-width:140px;">      
     <option value="all">همه کاربران</option>      
