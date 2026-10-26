@@ -41,9 +41,10 @@ if (path === "/") {
   return html(landingPage());
 }
 
-// USER PORTAL ROUTE
+// USER PANEL ROUTE (Open the actual existing KING panel dashboard)
 if (path === "/user") {
-  return html(userPortal(host, publicUrlFunc(host, env)));
+  const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
+  return html(dashboard(host, publicUrl));
 }
 
 // OWNER LOGIN / DASHBOARD AUTHENTICATION
@@ -487,10 +488,6 @@ headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-stor
 });
 }
 
-function publicUrlFunc(host, env) {
-return env.PANEL_PUBLIC_URL || `https://${host}`;
-}
-
 function escapeHtml(val) {
 return String(val ?? "").replace(/[&<>"']/g, c => ({
 "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -584,51 +581,6 @@ p.subtitle{color:var(--muted);font-size:clamp(14px, 2vw, 16px);margin-bottom:45p
     </a>
   </div>
 </div>
-</body>
-</html>`;
-}
-
-function userPortal(host, publicUrl) {
-return `<!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>بخش کاربری - KING PANEL</title>
-<style>
-:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--teal:#14b8a6;--text:#f3f4f6;--muted:#9ca3af}
-*{box-sizing:border-box}
-body{margin:0;padding:20px;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
-main{max-width:800px;margin:auto}
-header{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:25px;display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
-h1{font-size:22px;color:var(--teal);margin:0}
-.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:25px;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
-h2{font-size:18px;color:var(--gold);margin-top:0}
-p{color:var(--muted);line-height:1.8;font-size:14px}
-.button{border:0;border-radius:10px;padding:10px 18px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;font-size:13px;transition:0.2s}
-.teal{background:var(--teal);color:#111}
-.outline{background:#111827;color:white;border:1px solid var(--border)}
-.outline:hover{border-color:var(--teal)}
-</style>
-</head>
-<body>
-<main>
-  <header>
-    <h1>👤 پورتال عمومی کاربران</h1>
-    <a href="/" class="button outline">← بازگشت به صفحه اصلی</a>
-  </header>
-  
-  <div class="card">
-    <h2>راهنمای اتصال به سرویس</h2>
-    <p>کاربر گرامی، برای اتصال به سرویس خود، لینک اشتراک (Subscription) اختصاصی خود را که از مدیر دریافت کرده‌اید در نرم‌افزارهای معتبر مانند V2Box، MahsaNG، NekoBox یا Streisand وارد کنید.</p>
-    <p>تمامی پروکسی‌ها و تنظیمات به صورت خودکار بارگذاری خواهند شد.</p>
-  </div>
-
-  <div class="card">
-    <h2>پشتیبانی و وضعیت</h2>
-    <p>در صورت داشتن هرگونه سوال یا نیاز به پشتیبانی، می‌توانید با مدیر سیستم در ارتباط باشید تا لینک اشتراک یا اطلاعات اتصال جدید برای شما صادر گردد.</p>
-  </div>
-</main>
 </body>
 </html>`;
 }
