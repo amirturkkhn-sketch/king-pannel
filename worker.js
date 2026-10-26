@@ -102,10 +102,8 @@ if (path.startsWith("/api/") || path === "/") {
 }    
 
 // دریافت تنظیمات از دیتابیس    
-const [activeRow, echEnabledRow, echValueRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([    
+const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([    
   env.DB.prepare("SELECT value FROM settings WHERE key = 'clean_ip'").first().catch(() => null),    
-  env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_enabled'").first().catch(() => null),    
-  env.DB.prepare("SELECT value FROM settings WHERE key = 'ech_value'").first().catch(() => null),    
   env.DB.prepare("SELECT value FROM settings WHERE key = 'frag_enabled'").first().catch(() => null),    
   env.DB.prepare("SELECT value FROM settings WHERE key = 'frag_len'").first().catch(() => null),    
   env.DB.prepare("SELECT value FROM settings WHERE key = 'frag_int'").first().catch(() => null)    
@@ -114,30 +112,10 @@ const [activeRow, echEnabledRow, echValueRow, fragEnabledRow, fragLenRow, fragIn
 const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;    
 const connectionHost = env.CONNECTION_HOST || host;    
 const activeCleanIp = activeRow?.value || connectionHost;    
-const echEnabled = echEnabledRow?.value === "true";    
-const echValue = echValueRow?.value || "cloudflare-ech.com+udp://1.1.1.1";    
     
 const fragEnabled = fragEnabledRow?.value === "true";    
 const fragLen = fragLenRow?.value || "100-200";    
 const fragInt = fragIntRow?.value || "10-20";    
-
-// API: SAVE ECH SETTINGS    
-if (path === "/api/set-ech" && method === "POST") {    
-  const body = await readJson(request);    
-  if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);    
-
-  const enabled = body.enabled ? "true" : "false";    
-  const value = String(body.value || "").trim();    
-
-  if (enabled === "true" && !value) {    
-    return json({ error: "مقدار ECH نمی‌تواند خالی باشد." }, 400);    
-  }    
-
-  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_enabled', ?)").bind(enabled).run();    
-  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ech_value', ?)").bind(value).run();    
-
-  return json({ success: true, message: "تنظیمات ECH با موفقیت ذخیره شد." });    
-}    
 
 // API: SAVE FRAGMENT SETTINGS    
 if (path === "/api/set-fragment" && method === "POST") {    
@@ -186,9 +164,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
   let config = "";    
 
   const fragmentParam = fragEnabled ? `&packet=tls&length=${fragLen}&interval=${fragInt}` : "";    
-  const echParam = (echEnabled && protocol !== "shadowsocks" && protocol !== "ss")     
-    ? `&ech=${encodeURIComponent(echValue)}`     
-    : "";    
 
   if (protocol === "vless") {    
     config =    
@@ -203,7 +178,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `&allowInsecure=0` +    
       `&sni=cdn.akamai.steamstatic.com` +    
       fragmentParam +    
-      echParam +    
       `#${name}`;    
   } else if (protocol === "trojan") {    
     config =    
@@ -214,7 +188,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `&host=${encodeURIComponent(connectionHost)}` +    
       `&path=%2F%3Fed%3D2048` +    
       fragmentParam +    
-      echParam +    
       `#${name}`;    
   } else if (protocol === "shadowsocks" || protocol === "ss") {    
     const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);    
@@ -236,7 +209,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       "    tls: true",    
       `    servername: "${yamlEscape(connectionHost)}"`,    
       "    skip-cert-verify: false",    
-      (echEnabled && protocol !== "shadowsocks") ? `    ech-config: "${yamlEscape(echValue)}"` : "",    
       "    ws-opts:",    
       '      path: "/?ed=2048"',    
       "      headers:",    
@@ -306,10 +278,6 @@ if (path === "/api/users" && method === "GET") {
     activeCleanIp,    
     publicUrl,    
     connectionHost,    
-    echSettings: {    
-      enabled: echEnabled,    
-      value: echValue    
-    },    
     fragmentSettings: {    
       enabled: fragEnabled,    
       length: fragLen,    
@@ -617,29 +585,6 @@ input:checked + .slider:before { transform: translateX(22px); }
   </select>      
 </div>    
 <section class="config-card">      
-  <div class="config-header" onclick="toggleBody('ech-body-content')">      
-    <div style="display:flex;align-items:center;gap:10px;">      
-      <span style="color:var(--purple);font-size:18px;">🔒</span>      
-      <div>      
-        <h2 style="margin:0;color:var(--text);">تنظیمات ECH (Encrypted Client Hello)</h2>      
-        <div class="muted">رمزنگاری نام سرور در دسترشنی TLS</div>      
-      </div>      
-    </div>      
-    <label class="switch" onclick="event.stopPropagation()">      
-      <input type="checkbox" id="ech-toggle" onchange="saveEchSettings(true)">      
-      <span class="slider"></span>      
-    </label>      
-  </div>      
-  <div class="config-body" id="ech-body-content">      
-    <label>مقدار ECH</label>      
-    <input id="ech-value-input" placeholder="cloudflare-ech.com+udp://1.1.1.1" value="cloudflare-ech.com+udp://1.1.1.1">      
-    <div class="row" style="margin-top:15px;">      
-      <button class="gold" onclick="saveEchSettings()">ذخیره ECH</button>      
-      <button class="outline" onclick="toggleBody('ech-body-content')">بستن</button>      
-    </div>      
-  </div>      
-</section>    
-<section class="config-card">      
   <div class="config-header" onclick="toggleBody('frag-body-content')">      
     <div style="display:flex;align-items:center;gap:10px;">      
       <span style="color:var(--teal);font-size:18px;">⚡</span>      
@@ -752,21 +697,6 @@ document.getElementById("frag-int-input").value = intVal;
 alert("مقادیر پیشنهادی اپراتور اعمال شد. روی ذخیره فرگمنت کلیک کنید.");
 }
 
-async function saveEchSettings(isToggleOnly = false) {
-const enabled = document.getElementById("ech-toggle").checked;
-const value = document.getElementById("ech-value-input").value.trim();
-try {
-const res = await api("/api/set-ech", {
-method: "POST",
-headers: {"Content-Type":"application/json"},
-body: JSON.stringify({ enabled, value })
-});
-if (!isToggleOnly) alert(res.message || "ذخیره شد.");
-} catch(e) {
-alert("خطا: " + e.message);
-}
-}
-
 async function saveFragmentSettings(isToggleOnly = false) {
 const enabled = document.getElementById("frag-toggle").checked;
 const length = document.getElementById("frag-len-input").value.trim();
@@ -796,10 +726,6 @@ document.getElementById("active").textContent = data.metrics.active;
 document.getElementById("disabled").textContent = data.metrics.disabled;      
 document.getElementById("ip-total").textContent = ipsCache.length;      
 
-if (data.echSettings) {      
-  document.getElementById("ech-toggle").checked = data.echSettings.enabled;      
-  document.getElementById("ech-value-input").value = data.echSettings.value;      
-}      
 if (data.fragmentSettings) {      
   document.getElementById("frag-toggle").checked = data.fragmentSettings.enabled;      
   document.getElementById("frag-len-input").value = data.fragmentSettings.length;      
