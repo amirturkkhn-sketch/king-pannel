@@ -41,6 +41,11 @@ if (path === "/") {
   return html(landingPage());
 }
 
+// USER PORTAL ROUTE
+if (path === "/user") {
+  return html(userPortal(host, publicUrlFunc(host, env)));
+}
+
 // OWNER LOGIN / DASHBOARD AUTHENTICATION
 if (path === "/owner" || path.startsWith("/api/")) {    
   const adminUser = env.ADMIN_USER;    
@@ -109,11 +114,6 @@ if (path === "/owner" || path.startsWith("/api/")) {
     return new Response("Invalid authentication encoding", { status: 400 });    
   }    
 }    
-
-// USER PORTAL ROUTE
-if (path === "/user") {
-  return html(userPortal(host, publicUrl));
-}
 
 // دریافت تنظیمات از دیتابیس    
 const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([    
@@ -485,6 +485,10 @@ function html(content) {
 return new Response(content, {
 headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-store" }
 });
+}
+
+function publicUrlFunc(host, env) {
+return env.PANEL_PUBLIC_URL || `https://${host}`;
 }
 
 function escapeHtml(val) {
