@@ -41,13 +41,63 @@ if (path === "/") {
   return html(landingPage());
 }
 
-// USER PANEL ROUTE (Open the actual existing KING panel dashboard)
+// USER PANEL ROUTE (PUBLIC USER CREATION INTERFACE)
 if (path === "/user") {
-  const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
-  return html(dashboard(host, publicUrl));
+  return html(userPortal(host, publicUrlFunc(host, env)));
 }
 
-// OWNER LOGIN / DASHBOARD AUTHENTICATION
+// PUBLIC USER CREATION API (Restricted: creates user only, no admin controls/settings/deletions)
+if (path === "/api/public/create-user" && method === "POST") {
+  const body = await readJson(request);
+  if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);
+
+  const rawName = String(body.username || "").trim();
+  if (!rawName) return json({ error: "نام کاربری الزامی است." }, 400);
+
+  const username = rawName.toUpperCase().startsWith("👑KING_") ? rawName : "👑KING_" + rawName;
+  const protocol = String(body.protocol || "VLESS");
+  if (!["VLESS", "Trojan", "Shadowsocks"].includes(protocol)) {
+    return json({ error: "پروتکل معتبر نیست." }, 400);
+  }
+
+  const port = String(body.port || "443");
+  if (!["443", "2053", "2083", "2087", "8443"].includes(port)) {
+    return json({ error: "پورت معتبر نیست." }, 400);
+  }
+
+  const trafficNum = Number(body.traffic ?? 100);
+  const expireNum = Number(body.expire ?? 30);
+  if (!Number.isFinite(trafficNum) || trafficNum <= 0 || !Number.isFinite(expireNum) || expireNum <= 0) {
+    return json({ error: "حجم و اعتبار باید اعداد مثبت باشند." }, 400);
+  }
+
+  const traffic = `${trafficNum} GB`;
+  const expire = `${expireNum} روز`;
+  const status = "active";
+
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
+  if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
+
+  const id = "usr_" + crypto.randomUUID();
+  const uuid = crypto.randomUUID();
+
+  await env.DB.prepare(`    
+    INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'TLS 1.3', 'on', 'on', ?)    
+  `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
+
+  const pUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
+  return json({ 
+    success: true, 
+    message: "کاربر جدید با موفقیت ثبت شد.", 
+    username, 
+    subUrl: `${pUrl}/sub/${encodeURIComponent(username)}`,
+    yamlUrl: `${pUrl}/yaml/${encodeURIComponent(username)}`,
+    uuid 
+  });
+}
+
+// OWNER LOGIN / DASHBOARD AUTHENTICATION & API PROTECTION
 if (path === "/owner" || path.startsWith("/api/")) {    
   const adminUser = env.ADMIN_USER;    
   const adminPass = env.ADMIN_PASSWORD;    
@@ -76,8 +126,13 @@ if (path === "/owner" || path.startsWith("/api/")) {
         h1{color:var(--gold);font-size:24px;margin-bottom:10px;text-shadow:0 0 15px rgba(245,158,11,0.3)}    
         p{color:var(--muted);font-size:14px;margin-bottom:25px}    
         .badge{background:rgba(245,158,11,0.12);color:var(--gold);padding:6px 14px;border-radius:20px;font-size:12px;display:inline-block;margin-bottom:20px;border:1px solid rgba(245,158,11,0.3);font-weight:bold}    
+        input{width:100%;padding:12px;background:#030508;color:white;border:1px solid var(--border);border-radius:10px;margin:8px 0 16px;text-align:right}    
+        input:focus{border-color:var(--gold);outline:none;box-shadow:0 0 10px rgba(245,158,11,0.2)}    
+        .btn{width:100%;background:linear-gradient(135deg, var(--gold), #d97706);color:#111;border:0;padding:12px;border-radius:10px;font-weight:bold;cursor:pointer;font-size:15px;margin-top:10px}    
+        .btn:hover{filter:brightness(1.1)}    
         .back-link{display:inline-block;margin-top:20px;color:var(--muted);font-size:13px;text-decoration:none;transition:0.2s}    
         .back-link:hover{color:var(--gold)}    
+        .error-msg{color:#ef4444;font-size:13px;margin-top:10px;display:none}    
       </style>    
       </head>    
       <body>    
@@ -85,8 +140,32 @@ if (path === "/owner" || path.startsWith("/api/")) {
           <span class="badge">👑 بخش مدیریت ارشد 👑</span>    
           <h1>احراز هویت ادمین</h1>    
           <p>لطفاً برای ورود به پنل مدیریت، اطلاعات دسترسی خود را وارد کنید.</p>    
+          <form onsubmit="handleLogin(event)">    
+            <input type="text" id="username" placeholder="نام کاربری ادمین" required autocomplete="username">    
+            <input type="password" id="password" placeholder="کلمه عبور" required autocomplete="current-password">    
+            <button type="submit" class="btn">ورود به پنل مدیریت</button>    
+            <div id="error" class="error-msg">نام کاربری یا کلمه عبور اشتباه است.</div>    
+          </form>    
           <a href="/" class="back-link">← بازگشت به صفحه اصلی</a>    
         </div>    
+        <script>      
+        async function handleLogin(e) {      
+          e.preventDefault();      
+          const u = document.getElementById('username').value;      
+          const p = document.getElementById('password').value;      
+          const header = 'Basic ' + btoa(u + ':' + p);      
+          try {      
+            const res = await fetch('/owner', { headers: { 'Authorization': header } });      
+            if (res.ok) {      
+              window.location.href = '/owner';      
+            } else {      
+              document.getElementById('error').style.display = 'block';      
+            }      
+          } catch {      
+            document.getElementById('error').style.display = 'block';      
+          }      
+        }      
+        </script>    
       </body>    
       </html>    
     `, {    
@@ -488,6 +567,10 @@ headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "no-stor
 });
 }
 
+function publicUrlFunc(host, env) {
+return env.PANEL_PUBLIC_URL || `https://${host}`;
+}
+
 function escapeHtml(val) {
 return String(val ?? "").replace(/[&<>"']/g, c => ({
 "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -576,11 +659,117 @@ p.subtitle{color:var(--muted);font-size:clamp(14px, 2vw, 16px);margin-bottom:45p
     <a href="/user" class="portal-card user-card">
       <div class="icon">👤</div>
       <h2>USER</h2>
-      <p>مشاهده راهنمای اتصال، وضعیت سرویس و دسترسی به اطلاعات عمومی اشتراک‌ها</p>
+      <p>ثبت نام و ایجاد اشتراک جدید با دسترسی به لینک‌های اختصاصی اتصال</p>
       <span class="btn-action">ورود به بخش کاربر</span>
     </a>
   </div>
 </div>
+</body>
+</html>`;
+}
+
+function userPortal(host, publicUrl) {
+const safePublicUrl = JSON.stringify(publicUrl);
+return `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ثبت‌نام کاربر - KING PANEL</title>
+<style>
+:root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--teal:#14b8a6;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:radial-gradient(circle at top, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh}
+main{width:100%;max-width:550px}
+header{background:var(--card);border:1px solid rgba(20,184,166,0.3);border-radius:18px;padding:20px 25px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+h1{font-size:20px;color:var(--teal);margin:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:25px;box-shadow:0 10px 30px rgba(0,0,0,0.5);position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg, var(--teal), var(--purple))}
+label{display:block;margin-top:12px;font-size:13px;color:var(--muted)}
+input,select{width:100%;padding:11px;background:var(--bg);color:white;border:1px solid var(--border);border-radius:10px;margin-top:5px;font-family:inherit}
+input:focus,select:focus{border-color:var(--teal);outline:none;box-shadow:0 0 10px rgba(20,184,166,0.2)}
+button.btn{width:100%;background:linear-gradient(135deg, var(--teal), #0d9488);color:#111;border:0;padding:12px;border-radius:10px;font-weight:bold;cursor:pointer;font-size:15px;margin-top:20px;transition:0.2s}
+button.btn:hover{filter:brightness(1.1)}
+.button{border:0;border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:bold;text-decoration:none;display:inline-block;font-size:12px;background:#111827;color:white;border:1px solid var(--border);transition:0.2s}
+.button:hover{border-color:var(--teal)}
+#result-box{display:none;margin-top:20px;background:#030508;border:1px solid rgba(20,184,166,0.4);border-radius:12px;padding:15px}
+.result-row{margin-bottom:10px;font-size:13px;word-break:break-all}
+.copy-btn{background:var(--teal);color:#111;border:0;padding:6px 12px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:12px;margin-top:5px}
+.copy-btn:hover{filter:brightness(1.1)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>👤 ساخت اشتراک جدید</h1>
+    <a href="/" class="button">← صفحه اصلی</a>
+  </header>
+  
+  <div class="card">
+    <form id="public-user-form">
+      <label>نام کاربری دلخواه</label>
+      <input id="username" required placeholder="مثلاً ali">
+      
+      <label>انتخاب پروتکل</label>
+      <select id="protocol">
+        <option>VLESS</option>
+        <option>Trojan</option>
+        <option>Shadowsocks</option>
+      </select>
+      
+      <label>پورت اتصال</label>
+      <select id="port">
+        <option>443</option>
+        <option>2053</option>
+        <option>2083</option>
+        <option>2087</option>
+        <option>8443</option>
+      </select>
+
+      <button type="submit" class="btn">ثبت‌نام و ایجاد سرویس</button>
+    </form>
+
+    <div id="result-box">
+      <h3 style="color:var(--teal);margin-top:0;font-size:16px;">✨ حساب شما با موفقیت ساخته شد!</h3>
+      <div class="result-row"><b>نام کاربری:</b> <span id="res-user"></span></div>
+      <div class="result-row"><b>لینک ساب‌سکرپشن:</b><br><input id="res-sub" readonly style="margin-top:4px;font-size:11px;"> <button class="copy-btn" onclick="copyVal('res-sub', 'لینک ساب کپی شد!')">کپی لینک ساب</button></div>
+      <div class="result-row" style="margin-top:12px;"><b>لینک ساب YAML (کلاش):</b><br><input id="res-yaml" readonly style="margin-top:4px;font-size:11px;"> <button class="copy-btn" onclick="copyVal('res-yaml', 'لینک YAML کپی شد!')">کپی لینک YAML</button></div>
+    </div>
+  </div>
+</main>
+<script>
+const publicPanelUrl = ${safePublicUrl};
+document.getElementById('public-user-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const protocol = document.getElementById('protocol').value;
+  const port = document.getElementById('port').value;
+
+  try {
+    const res = await fetch('/api/public/create-user', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, protocol, port, traffic: 100, expire: 30 })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'خطا در ثبت‌نام');
+
+    document.getElementById('res-user').textContent = data.username;
+    document.getElementById('res-sub').value = data.subUrl;
+    document.getElementById('res-yaml').value = data.yamlUrl;
+    document.getElementById('result-box').style.display = 'block';
+    document.getElementById('public-user-form').reset();
+  } catch(err) {
+    alert('خطا: ' + err.message);
+  }
+});
+
+function copyVal(elementId, msg) {
+  const el = document.getElementById(elementId);
+  el.select();
+  navigator.clipboard.writeText(el.value).then(() => alert(msg)).catch(() => alert('خطا در کپی کردن'));
+}
+</script>
 </body>
 </html>`;
 }
