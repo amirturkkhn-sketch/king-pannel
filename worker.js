@@ -275,7 +275,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
 
   if (protocol === "vless") {    
     config =    
-      `vless://XpnTeam-53@${activeCleanIp}:${port}` +    
+      `vless://XpnTeam-53@199.232.78.160:443` +    
       `?pcs=cd6e838b9bfe31cab8b3d5c858b0d6223fe84ece236c1fdb281be93c302e1e6e` +    
       `&path=%2F` +    
       `&security=tls` +    
@@ -330,9 +330,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     return new Response(yaml, {    
       headers: {    
         "Content-Type": "text/yaml; charset=UTF-8",    
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0"
+        "Cache-Control": "no-store"    
       }    
     });    
   }    
@@ -342,9 +340,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     {    
       headers: {    
         "Content-Type": "text/plain; charset=UTF-8",    
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0"
+        "Cache-Control": "no-store"    
       }    
     }    
   );    
@@ -602,7 +598,7 @@ return String(val ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 function isValidIPv4(ip) {
 const parts = ip.split(".");
 if (parts.length !== 4) return false;
-parts.every(part => {
+return parts.every(part => {
 if (!/^\d{1,3}$/.test(part)) return false;
 if (part.length > 1 && part.startsWith("0")) return false;
 const n = Number(part);
@@ -1174,7 +1170,7 @@ async function importIps() {
 const ips = document.getElementById("bulk-ips").value.trim();
 if (!ips) return;
 try {
-const res = alias = await api("/api/import-ips", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ips}) });
+const res = await api("/api/import-ips", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ips}) });
 alert(res.saved + " IP با موفقیت ثبت شد.");
 document.getElementById("bulk-ips").value = "";
 loadAll();
