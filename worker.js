@@ -275,7 +275,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
 
   if (protocol === "vless") {    
     config =    
-      `vless://XpnTeam-53@199.232.78.160:443` +    
+      `vless://XpnTeam-55@199.232.78.170:443` +    
       `?pcs=cd6e838b9bfe31cab8b3d5c858b0d6223fe84ece236c1fdb281be93c302e1e6e` +    
       `&path=%2F` +    
       `&security=tls` +    
@@ -330,7 +330,9 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     return new Response(yaml, {    
       headers: {    
         "Content-Type": "text/yaml; charset=UTF-8",    
-        "Cache-Control": "no-store"    
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
       }    
     });    
   }    
@@ -340,7 +342,9 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     {    
       headers: {    
         "Content-Type": "text/plain; charset=UTF-8",    
-        "Cache-Control": "no-store"    
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
       }    
     }    
   );    
@@ -1118,7 +1122,7 @@ loadAll();
 } catch(e) { alert("خطا: " + e.message); }
 }
 
-async function toggleUserStatus(id, currentStatus) {
+async function toggleUserStatus(id, currentStatus)++ {
 const newStatus = currentStatus === "disabled" ? "active" : "disabled";
 try {
 await api("/api/users/status/" + encodeURIComponent(id), {
