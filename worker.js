@@ -275,7 +275,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
 
   if (protocol === "vless") {    
     config =    
-      `vless://XpnTeam-52@199.232.78.160:443` +    
+      `vless://XpnTeam-53@199.232.78.160:443` +    
       `?pcs=cd6e838b9bfe31cab8b3d5c858b0d6223fe84ece236c1fdb281be93c302e1e6e` +    
       `&path=%2F` +    
       `&security=tls` +    
