@@ -1,8 +1,4 @@
-name = "king-pannel"
-main = "worker.js"
-compatibility_date = "2026-10-19"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "king-db"
-database_id = "6cc7faea-b60b-4b08-b324-0107df38194e"
+database_id = "83a188c5-e7e1-4963-aedc-b4f2036e59fd"
