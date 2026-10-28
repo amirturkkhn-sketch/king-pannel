@@ -60,7 +60,7 @@ if (path === "/api/public/create-user" && method === "POST") {
     return json({ error: "پروتکل معتبر نیست." }, 400);
   }
 
-  const port = String(body.port || "2087");
+  const port = String(body.port || "8443");
   if (!["443", "2053", "2083", "2087", "8443"].includes(port)) {
     return json({ error: "پورت معتبر نیست." }, 400);
   }
@@ -79,11 +79,11 @@ if (path === "/api/public/create-user" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
 
   const id = "usr_" + crypto.randomUUID();
-  const uuid = "b9fdc03f-389b-4cda-9be4-155b623bee15";
+  const uuid = "d4353076-3ec7-47dc-88b0-f21eb59fbfb8";
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
 
   const pUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
@@ -219,7 +219,7 @@ const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
 
 const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;    
 const connectionHost = env.CONNECTION_HOST || host;    
-const activeCleanIp = activeRow?.value || "2.26.6.1";    
+const activeCleanIp = activeRow?.value || "193.160.140.159";    
     
 const fragEnabled = fragEnabledRow?.value === "true";    
 const fragLen = fragLenRow?.value || "100-200";    
@@ -262,7 +262,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     return new Response("Subscription disabled", { status: 403 });    
   }    
 
-  const port = Number(user.port || 2087);    
+  const port = Number(user.port || 8443);    
   if (!Number.isInteger(port) || port < 1 || port > 65535) {    
     return new Response("Invalid port", { status: 500 });    
   }    
@@ -272,19 +272,22 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
   let config = "";    
 
   if (protocol === "vless") {    
-    const targetIp = activeCleanIp || "2.26.6.1";
-    const targetUuid = user.uuid || "b9fdc03f-389b-4cda-9be4-155b623bee15";
+    const targetIp = activeCleanIp || "193.160.140.159";
+    const targetUuid = user.uuid || "d4353076-3ec7-47dc-88b0-f21eb59fbfb8";
     config =    
       `vless://${targetUuid}@${targetIp}:${port}` +    
       `?encryption=none` +    
-      `&security=tls` +    
-      `&allowInsecure=0` +    
+      `&flow=xtls-rprx-vision` +    
+      `&security=reality` +    
+      `&sni=apple.com` +    
+      `&pbk=SbVKOEMjK0sIlbwg4akyBg5mL5KZwwB-ed4eEE7YnRc` +    
       `&type=tcp` +    
       `#${name}`;    
   } else if (protocol === "trojan") {    
     config =    
       `trojan://${user.uuid}@${activeCleanIp}:${port}` +    
       `?security=tls` +    
+      `&sni=${encodeURIComponent(connectionHost)}` +    
       `&type=tcp` +    
       `#${name}`;    
   } else if (protocol === "shadowsocks" || protocol === "ss") {    
@@ -303,8 +306,11 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `    port: ${port}`,    
       protocol === "vless" ? `    uuid: "${user.uuid}"` : `    password: "${user.uuid}"`,    
       protocol === "vless" ? "    encryption: none" : "",    
+      protocol === "vless" ? "    flow: xtls-rprx-vision" : "",    
       "    network: tcp",    
-      "    tls: true",    
+      protocol === "vless" ? "    tls: true" : "    tls: true",    
+      protocol === "vless" ? "    servername: \"apple.com\"" : `    servername: "${yamlEscape(connectionHost)}"`,    
+      protocol === "vless" ? "    reality-opts:\n      public-key: \"SbVKOEMjK0sIlbwg4akyBg5mL5KZwwB-ed4eEE7YnRc\"" : "",    
       "    skip-cert-verify: false"    
     ].filter(Boolean).join("\n");    
 
@@ -398,7 +404,7 @@ if (path === "/api/users" && method === "POST") {
     return json({ error: "پروتکل معتبر نیست." }, 400);    
   }    
 
-  const port = String(body.port || "2087");    
+  const port = String(body.port || "8443");    
   if (!["443", "2053", "2083", "2087", "8443"].includes(port)) {    
     return json({ error: "پورت معتبر نیست." }, 400);    
   }    
@@ -428,11 +434,11 @@ if (path === "/api/users" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);    
 
   const id = "usr_" + crypto.randomUUID();    
-  const uuid = "b9fdc03f-389b-4cda-9be4-155b623bee15";    
+  const uuid = "d4353076-3ec7-47dc-88b0-f21eb59fbfb8";    
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();    
 
   return json({ success: true, message: "کاربر جدید ثبت شد." });    
@@ -443,7 +449,7 @@ if (path.startsWith("/api/users/regen/") && method === "POST") {
   const id = decodeURIComponent(path.slice("/api/users/regen/".length));    
   if (!id) return json({ error: "شناسه نامعتبر است." }, 400);    
 
-  const newUuid = "b9fdc03f-389b-4cda-9be4-155b623bee15";    
+  const newUuid = "d4353076-3ec7-47dc-88b0-f21eb59fbfb8";    
   await env.DB.prepare("UPDATE users SET uuid = ? WHERE id = ?").bind(newUuid, id).run();    
   return json({ success: true, message: "UUID کاربر با موفقیت بازسازی شد.", uuid: newUuid });    
 }    
@@ -901,8 +907,8 @@ input:checked + .slider:before { transform: translateX(22px); }
     </select>      
     <label>پورت</label>      
     <select id="port">      
-      <option>2087</option><option>443</option><option>2053</option><option>2083</option>      
-      <option>8443</option>      
+      <option>8443</option><option>443</option><option>2053</option><option>2083</option>      
+      <option>2087</option>      
     </select>      
     <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>      
     <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>      
@@ -1069,7 +1075,7 @@ document.getElementById("edit-id").value = u.id;
 document.getElementById("username").value = u.username;
 document.getElementById("username").disabled = true;
 document.getElementById("protocol").value = u.protocol || "VLESS";
-document.getElementById("port").value = u.port || "2087";
+document.getElementById("port").value = u.port || "8443";
 document.getElementById("traffic").value = parseInt(u.traffic) || 100;
 document.getElementById("expire").value = parseInt(u.expire) || 30;
 document.getElementById("status").value = u.status || "active";
