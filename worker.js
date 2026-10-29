@@ -60,8 +60,8 @@ if (path === "/api/public/create-user" && method === "POST") {
     return json({ error: "پروتکل معتبر نیست." }, 400);
   }
 
-  const port = String(body.port || "443");
-  if (!["443"].includes(port)) {
+  const port = String(body.port || "2069");
+  if (!["2069"].includes(port)) {
     return json({ error: "پورت معتبر نیست." }, 400);
   }
 
@@ -79,7 +79,7 @@ if (path === "/api/public/create-user" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
 
   const id = "usr_" + crypto.randomUUID();
-  const uuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
+  const uuid = "5d7b401c-78fa-4254-872e-6d42bf7e75ec";
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
@@ -219,7 +219,7 @@ const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
 
 const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;    
 const connectionHost = env.CONNECTION_HOST || host;    
-const activeCleanIp = activeRow?.value || "146.75.57.238";    
+const activeCleanIp = activeRow?.value || "saas.sin.fan";    
     
 const fragEnabled = fragEnabledRow?.value === "true";    
 const fragLen = fragLenRow?.value || "100-200";    
@@ -264,13 +264,12 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
 
   const configName = encodeURIComponent(user.username);
 
-  const vlessWsIp = activeCleanIp || "146.75.57.238";
-  const vlessWsPort = 443;
-  const vlessWsUuid = user.uuid || "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
-  const wsHost = "copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net";
-  const wsPath = ""; 
-  const certFingerprint = "D6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E";
-  const sni = "cdn.akamai.steamstatic.com";
+  const vlessWsIp = activeCleanIp || "saas.sin.fan";
+  const vlessWsPort = 2069;
+  const vlessWsUuid = user.uuid || "5d7b401c-78fa-4254-872e-6d42bf7e75ec";
+  const wsHost = "vp8.1145678.xyz";
+  const wsPath = "/p"; 
+  const sni = "vp8.1145678.xyz";
 
   const vlessWsConfig = `vless://${vlessWsUuid}@${vlessWsIp}:${vlessWsPort}?encryption=none&security=tls&sni=${sni}&type=ws&host=${encodeURIComponent(wsHost)}&path=${encodeURIComponent(wsPath)}&fp=chrome#${configName}`;
 
@@ -289,9 +288,8 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `    tls: true`,    
       `    servername: "${sni}"`,    
       `    ws-opts:\n      path: "${wsPath}"\n      headers:\n        Host: "${wsHost}"`,    
-      `    skip-cert-verify: false`,    
-      `    client-fingerprint: "chrome"`,    
-      `    certificate-fingerprint: "${certFingerprint}"`    
+      `    skip-cert-verify: true`,    
+      `    client-fingerprint: "chrome"`    
     ].join("\n");    
 
     return new Response(yaml, {    
@@ -381,7 +379,7 @@ if (path === "/api/users" && method === "POST") {
 
   const username = rawName; 
   const protocol = "VLESS";    
-  const port = "443";    
+  const port = "2069";    
   const trafficNum = Number(body.traffic ?? 100);    
   const expireNum = Number(body.expire ?? 30);    
   if (!Number.isFinite(trafficNum) || trafficNum <= 0 || !Number.isFinite(expireNum) || expireNum <= 0) {    
@@ -407,7 +405,7 @@ if (path === "/api/users" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);    
 
   const id = "usr_" + crypto.randomUUID();    
-  const uuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";    
+  const uuid = "5d7b401c-78fa-4254-872e-6d42bf7e75ec";    
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
@@ -422,7 +420,7 @@ if (path.startsWith("/api/users/regen/") && method === "POST") {
   const id = decodeURIComponent(path.slice("/api/users/regen/".length));    
   if (!id) return json({ error: "شناسه نامعتبر است." }, 400);    
 
-  const newUuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";    
+  const newUuid = "5d7b401c-78fa-4254-872e-6d42bf7e75ec";    
   await env.DB.prepare("UPDATE users SET uuid = ? WHERE id = ?").bind(newUuid, id).run();    
   return json({ success: true, message: "UUID کاربر با موفقیت بازسازی شد.", uuid: newUuid });    
 }    
@@ -692,7 +690,7 @@ button.btn:hover{filter:brightness(1.1)}
       <input value="VLESS (WS + TLS)" readonly style="background:#111827;color:#14b8a6;">
       
       <label>پورت اتصال</label>
-      <input value="443" readonly style="background:#111827;color:#14b8a6;">
+      <input value="2069" readonly style="background:#111827;color:#14b8a6;">
 
       <button type="submit" class="btn">ثبت‌نام و ایجاد سرویس</button>
     </form>
@@ -715,7 +713,7 @@ document.getElementById('public-user-form').addEventListener('submit', async e =
     const res = await fetch('/api/public/create-user', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ username, protocol: 'VLESS', port: '443', traffic: 100, expire: 30 })
+      body: JSON.stringify({ username, protocol: 'VLESS', port: '2069', traffic: 100, expire: 30 })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'خطا در ثبت‌نام');
@@ -865,7 +863,7 @@ input:checked + .slider:before { transform: translateX(22px); }
     <label>پروتکل</label>      
     <input value="VLESS (WS + TLS)" readonly style="background:#111827;color:#14b8a6;">      
     <label>پورت</label>      
-    <input value="443" readonly style="background:#111827;color:#14b8a6;">      
+    <input value="2069" readonly style="background:#111827;color:#14b8a6;">      
     <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>      
     <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>      
     <label>وضعیت</label>      
@@ -879,10 +877,10 @@ input:checked + .slider:before { transform: translateX(22px); }
 <dialog id="ip-dialog">      
   <h2>مدیریت مخزن IP</h2>      
   <label>ثبت و فعال‌کردن یک IP</label>      
-  <input id="ip-input" placeholder="مثال: 146.75.57.238">      
+  <input id="ip-input" placeholder="مثال: saas.sin.fan">      
   <button class="gold" onclick="saveIp()">ثبت و فعال‌کردن</button>    
   <label>واردکردن گروهی IP (هر خط یک IP)</label>      
-  <textarea id="bulk-ips" placeholder="146.75.57.238"></textarea>    
+  <textarea id="bulk-ips" placeholder="saas.sin.fan"></textarea>    
   <button class="gold" onclick="importIps()">واردکردن IPها</button>    
   <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>    
   <div id="range-output" class="muted" style="margin-top:8px;"></div>      
@@ -997,7 +995,7 @@ const statusColor = u.status === "disabled" ? "var(--red)" : "var(--green)";
 
 return '<article class="user">' +      
   '<div class="row"><h2>' + esc(u.username) + '</h2><span style="color:' + statusColor + '">' + statusText + '</span></div>' +      
-  '<p class="muted">پروتکل: VLESS (WS + TLS) | پورت: 443 | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +      
+  '<p class="muted">پروتکل: VLESS (WS + TLS) | پورت: 2069 | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +      
   '<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">' +      
     '<button class="gold" onclick="copyText(\\'' + subUrl + '\\', \\'لینک ساب‌سکرپشن کپی شد!\\')">📋 کپی ساب</button>' +      
     '<button class="outline" onclick="copyText(\\'' + yamlUrl + '\\', \\'لینک YAML کپی شد!\\')">📄 کپی YAML</button>' +      
@@ -1043,7 +1041,7 @@ const payload = {
 id: document.getElementById("edit-id").value,
 username: document.getElementById("username").value,
 protocol: "VLESS",
-port: "443",
+port: "2069",
 traffic: document.getElementById("traffic").value,
 expire: document.getElementById("expire").value,
 status: document.getElementById("status").value
@@ -1154,11 +1152,11 @@ diagEl.textContent = "در حال بررسی سیستم...";
 try {
 diagEl.innerHTML =
 "<b>وضعیت پروتکل:</b> VLESS WS + TLS (تک‌کانفیگ دقیق)<br>" +
-"<b>آدرس سرور:</b> 146.75.57.238 (پورت: 443)<br>" +
-"<b>SNI:</b> cdn.akamai.steamstatic.com<br>" +
-"<b>WS Host:</b> copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net<br>" +
-"<b>WS Path:</b> کاملاً خالی<br>" +
-"<b>Certificate Fingerprint:</b> D6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E";
+"<b>آدرس سرور:</b> saas.sin.fan (پورت: 2069)<br>" +
+"<b>SNI:</b> vp8.1145678.xyz<br>" +
+"<b>WS Host:</b> vp8.1145678.xyz<br>" +
+"<b>WS Path:</b> /p<br>" +
+"<b>Fingerprint:</b> chrome";
 } catch(e) {
 diagEl.textContent = "خطا در اجرای عیب‌یابی: " + e.message;
 }
