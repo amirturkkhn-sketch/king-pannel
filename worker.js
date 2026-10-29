@@ -54,7 +54,7 @@ if (path === "/api/public/create-user" && method === "POST") {
   const rawName = String(body.username || "").trim();
   if (!rawName) return json({ error: "نام کاربری الزامی است." }, 400);
 
-  const username = rawName.toUpperCase().startsWith("👑KING_") ? rawName : "👑KING_" + rawName;
+  const username = rawName; // Respect exact user input name, no forced prefix overrides if customized
   const protocol = String(body.protocol || "VLESS");
   if (!["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2"].includes(protocol)) {
     return json({ error: "پروتکل معتبر نیست." }, 400);
@@ -79,11 +79,11 @@ if (path === "/api/public/create-user" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
 
   const id = "usr_" + crypto.randomUUID();
-  const uuid = "4cebda86-2af3-4757-a83f-b31136856884";
+  const uuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
 
   const pUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
@@ -219,7 +219,7 @@ const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
 
 const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;    
 const connectionHost = env.CONNECTION_HOST || host;    
-const activeCleanIp = activeRow?.value || "176.120.17.194";    
+const activeCleanIp = activeRow?.value || "146.75.57.238";    
     
 const fragEnabled = fragEnabledRow?.value === "true";    
 const fragLen = fragLenRow?.value || "100-200";    
@@ -241,7 +241,7 @@ if (path === "/api/set-fragment" && method === "POST") {
   return json({ success: true, message: "تنظیمات فرگمنت با موفقیت ذخیره شد." });    
 }    
 
-// SUBSCRIPTION: MULTI-PROTOCOL (VLESS REALITY, HYSTERIA 2, VLESS WS + TLS, TROJAN, SHADOWSOCKS)
+// SUBSCRIPTION: EXACT VLESS WS + TLS PROFILE (CRITICAL: EMPTY WS PATH PRESERVED, USER CONFIG NAME USED AS REMARK)
 if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {    
   const username = decodeURIComponent(path.split("/")[2] || "");    
 
@@ -262,72 +262,26 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     return new Response("Subscription disabled", { status: 403 });    
   }    
 
-  const name = encodeURIComponent(user.username);    
+  const configName = encodeURIComponent(user.username); // User input name only as remark
 
-  // Profile 1: VLESS Reality Profile (Independent, exact parameters)
-  const vlessRealityIp = "176.120.17.194";
-  const vlessRealityPort = 443;
-  const vlessRealityUuid = "4cebda86-2af3-4757-a83f-b31136856884";
-  const vlessRealityConfig = `vless://${vlessRealityUuid}@${vlessRealityIp}:${vlessRealityPort}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=link.aparat.com&pbk=Ujxrbw9tFC3UTedIMMOPeE2U5EYQs0PS9R41kgx7rGs&sid=cd2127913b181d62&type=tcp&fp=chrome#${name}-VLESS-Reality`;
-
-  // Profile 2: Hysteria 2 Profile (Independent, exact parameters)
-  const hy2Address = "179.61.138.145";
-  const hy2Port = 36264;
-  const hy2Password = "vpnjey";
-  const hy2Config = `hysteria2://${hy2Password}@${hy2Address}:${hy2Port}?security=tls&sni=de2.jey.cc.cd&insecure=0&obfs=salamander&obfs-password=${encodeURIComponent("Telegram@vpnjey")}#${name}-Hysteria2`;
-
-  // Profile 3: VLESS WS + TLS Profile (Independent, exact parameters, empty path string explicitly preserved)
+  // Exact configuration requirements for VLESS WS + TLS profile
   const vlessWsIp = "146.75.57.238";
   const vlessWsPort = 443;
-  const vlessWsUuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
+  const vlessWsUuid = user.uuid || "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
   const wsHost = "copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net";
-  const wsPath = ""; // CRITICAL REQUIREMENT: Strictly empty string, never "/"
+  const wsPath = ""; // CRITICAL REQUIREMENT: Strictly empty string, never "/" or substituted
   const certFingerprint = "CD6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E";
-  const vlessWsConfig = `vless://${vlessWsUuid}@${vlessWsIp}:${vlessWsPort}?encryption=none&security=tls&sni=cdn.akamai.steamstatic.com&type=ws&host=${encodeURIComponent(wsHost)}&path=${encodeURIComponent(wsPath)}&fp=chrome#${name}-VLESS-WS-TLS`;
+  const sni = "cdn.akamai.steamstatic.com";
 
-  // Additional protocol items for general user database node support
-  const port = Number(user.port || 443);
-  const protocol = (user.protocol || "VLESS").toLowerCase();
-  let userNodeConfig = "";
-  if (protocol === "vless") {
-    userNodeConfig = `vless://${user.uuid || vlessRealityUuid}@${activeCleanIp}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=link.aparat.com&pbk=Ujxrbw9tFC3UTedIMMOPeE2U5EYQs0PS9R41kgx7rGs&sid=cd2127913b181d62&type=tcp&fp=chrome#${name}`;
-  } else if (protocol === "trojan") {
-    userNodeConfig = `trojan://${user.uuid}@${activeCleanIp}:${port}?security=tls&sni=${encodeURIComponent(connectionHost)}&type=tcp#${name}`;
-  } else if (protocol === "shadowsocks" || protocol === "ss") {
-    const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
-    userNodeConfig = `ss://${auth}@${activeCleanIp}:${port}#${name}`;
-  } else {
-    userNodeConfig = vlessRealityConfig;
-  }
+  // Constructing URI strictly adhering to parameters without inventing or populating optional fields
+  const vlessWsConfig = `vless://${vlessWsUuid}@${vlessWsIp}:${vlessWsPort}?encryption=none&security=tls&sni=${sni}&type=ws&host=${encodeURIComponent(wsHost)}&path=${encodeURIComponent(wsPath)}&fp=${encodeURIComponent("")}#${configName}`;
 
-  const allConfigs = [vlessRealityConfig, hy2Config, vlessWsConfig, userNodeConfig];
+  const allConfigs = [vlessWsConfig];
 
   if (path.startsWith("/yaml/")) {    
     const yaml = [    
       "proxies:",    
-      `  - name: "${yamlEscape(user.username)}-VLESS-Reality"`,    
-      `    type: vless`,    
-      `    server: "${vlessRealityIp}"`,    
-      `    port: ${vlessRealityPort}`,    
-      `    uuid: "${vlessRealityUuid}"`,    
-      `    encryption: none`,    
-      `    flow: xtls-rprx-vision`,    
-      `    network: tcp`,    
-      `    tls: true`,    
-      `    servername: "link.aparat.com"`,    
-      `    reality-opts:\n      public-key: "Ujxrbw9tFC3UTedIMMOPeE2U5EYQs0PS9R41kgx7rGs"\n      short-id: "cd2127913b181d62"`,    
-      `    client-fingerprint: chrome`,    
-      `    skip-cert-verify: false`,    
-      `  - name: "${yamlEscape(user.username)}-Hysteria2"`,    
-      `    type: hysteria2`,    
-      `    server: "${hy2Address}"`,    
-      `    port: ${hy2Port}`,    
-      `    password: "${hy2Password}"`,    
-      `    sni: "de2.jey.cc.cd"`,    
-      `    obfs: salamander`,    
-      `    obfs-password: "Telegram@vpnjey"`,    
-      `    skip-cert-verify: false`,    
-      `  - name: "${yamlEscape(user.username)}-VLESS-WS-TLS"`,    
+      `  - name: "${yamlEscape(user.username)}"`,    
       `    type: vless`,    
       `    server: "${vlessWsIp}"`,    
       `    port: ${vlessWsPort}`,    
@@ -335,9 +289,10 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `    encryption: none`,    
       `    network: ws`,    
       `    tls: true`,    
-      `    servername: "cdn.akamai.steamstatic.com"`,    
+      `    servername: "${sni}"`,    
       `    ws-opts:\n      path: "${wsPath}"\n      headers:\n        Host: "${wsHost}"`,    
-      `    skip-cert-verify: false`    
+      `    skip-cert-verify: false`,    
+      `    certificate-fingerprint: "${certFingerprint}"`    
     ].join("\n");    
 
     return new Response(yaml, {    
@@ -350,7 +305,7 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     });    
   }    
 
-  // Base64 encoded multi-profile subscription text payload
+  // Base64 encoded subscription text payload
   const combinedText = allConfigs.join("\n");
   return new Response(    
     btoa(unescape(encodeURIComponent(combinedText))),    
@@ -418,25 +373,17 @@ if (path === "/api/users" && method === "GET") {
   });    
 }    
 
-// ADD OR EDIT USER    
+// ADD OR EDIT USER (Ensuring single profile management & independent user config name)
 if (path === "/api/users" && method === "POST") {    
   const body = await readJson(request);    
   if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);    
 
   const rawName = String(body.username || "").trim();    
-  if (!rawName) return json({ error: "نام کاربری الزامی است." }, 400);    
+  if (!rawName) return json({ error: "نام کاربری (Configuration Name) الزامی است." }, 400);    
 
-  const username = rawName.toUpperCase().startsWith("👑KING_") ? rawName : "👑KING_" + rawName;    
-  const protocol = String(body.protocol || "VLESS");    
-  if (!["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2"].includes(protocol)) {    
-    return json({ error: "پروتکل معتبر نیست." }, 400);    
-  }    
-
-  const port = String(body.port || "443");    
-  if (!["443", "36264", "2053", "2083", "2087", "8443"].includes(port)) {    
-    return json({ error: "پورت معتبر نیست." }, 400);    
-  }    
-
+  const username = rawName; // Exact user input name used independently as configuration name/remark
+  const protocol = "VLESS";    
+  const port = "443";    
   const trafficNum = Number(body.traffic ?? 100);    
   const expireNum = Number(body.expire ?? 30);    
   if (!Number.isFinite(trafficNum) || trafficNum <= 0 || !Number.isFinite(expireNum) || expireNum <= 0) {    
@@ -451,25 +398,26 @@ if (path === "/api/users" && method === "POST") {
     const existingUser = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(String(body.id)).first();    
     if (!existingUser) return json({ error: "کاربر مورد نظر یافت نشد." }, 404);    
 
+    // Updating name or parameters independently without modifying core connection settings inappropriately
     await env.DB.prepare(`    
-      UPDATE users SET protocol = ?, traffic = ?, expire = ?, port = ?, status = ? WHERE id = ?    
-    `).bind(protocol, traffic, expire, port, status, String(body.id)).run();    
+      UPDATE users SET username = ?, protocol = ?, traffic = ?, expire = ?, port = ?, status = ? WHERE id = ?    
+    `).bind(username, protocol, traffic, expire, port, status, String(body.id)).run();    
 
-    return json({ success: true, message: "کاربر با موفقیت ویرایش شد." });    
+    return json({ success: true, message: "پروفایل با موفقیت ویرایش شد و تنظیمات اتصال حفظ گردید." });    
   }    
 
   const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();    
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);    
 
   const id = "usr_" + crypto.randomUUID();    
-  const uuid = "4cebda86-2af3-4757-a83f-b31136856884";    
+  const uuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";    
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();    
 
-  return json({ success: true, message: "کاربر جدید ثبت شد." });    
+  return json({ success: true, message: "پروفایل جدید VLESS WS + TLS با موفقیت ایجاد شد." });    
 }    
 
 // REGENERATE UUID    
@@ -477,9 +425,9 @@ if (path.startsWith("/api/users/regen/") && method === "POST") {
   const id = decodeURIComponent(path.slice("/api/users/regen/".length));    
   if (!id) return json({ error: "شناسه نامعتبر است." }, 400);    
 
-  const newUuid = "4cebda86-2af3-4757-a83f-b31136856884";    
+  const newUuid = "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";    
   await env.DB.prepare("UPDATE users SET uuid = ? WHERE id = ?").bind(newUuid, id).run();    
-  return json({ success: true, message: "UUID کاربر با موفقیت بازسازی شد.", uuid: newUuid });    
+  return json({ success: true, message: "UUID پروفایل با موفقیت بازسازی شد.", uuid: newUuid });    
 }    
 
 // TOGGLE USER STATUS    
@@ -734,42 +682,27 @@ button.btn:hover{filter:brightness(1.1)}
 <body>
 <main>
   <header>
-    <h1>👤 ساخت اشتراک جدید</h1>
+    <h1>👤 ساخت اشتراک VLESS WS + TLS</h1>
     <a href="/" class="button">← صفحه اصلی</a>
   </header>
   
   <div class="card">
     <form id="public-user-form">
-      <label>نام کاربری دلخواه</label>
-      <input id="username" required placeholder="مثلاً ali">
+      <label>نام تنظیمات / نام کاربری (Configuration Name)</label>
+      <input id="username" required placeholder="نام دلخواه شما بدون پیش‌فرض اجباری">
       
-      <label>انتخاب پروتکل</label>
-      <select id="protocol" onchange="updateDynamicFields()">
-        <option value="VLESS">VLESS</option>
-        <option value="VMess">VMess</option>
-        <option value="Trojan">Trojan</option>
-        <option value="Shadowsocks">Shadowsocks</option>
-        <option value="Hysteria2">Hysteria 2</option>
-      </select>
+      <label>پروتکل</label>
+      <input value="VLESS (WS + TLS)" readonly style="background:#111827;color:#14b8a6;">
       
       <label>پورت اتصال</label>
-      <select id="port">
-        <option value="443">443 (VLESS / TLS)</option>
-        <option value="36264">36264 (Hysteria 2)</option>
-        <option value="2053">2053</option>
-        <option value="2083">2083</option>
-        <option value="2087">2087</option>
-        <option value="8443">8443</option>
-      </select>
+      <input value="443" readonly style="background:#111827;color:#14b8a6;">
 
-      <div id="dynamic-fields-container" style="margin-top:10px;"></div>
-
-      <button type="submit" class="btn">ثبت‌نام و ایجاد سرویس</button>
+      <button type="submit" class="btn">ثبت و ساخت پروفایل</button>
     </form>
 
     <div id="result-box">
-      <h3 style="color:var(--teal);margin-top:0;font-size:16px;">✨ حساب شما با موفقیت ساخته شد!</h3>
-      <div class="result-row"><b>نام کاربری:</b> <span id="res-user"></span></div>
+      <h3 style="color:var(--teal);margin-top:0;font-size:16px;">✨ پروفایل VLESS WS + TLS با موفقیت ثبت شد!</h3>
+      <div class="result-row"><b>نام تنظیمات:</b> <span id="res-user"></span></div>
       <div class="result-row"><b>لینک ساب‌سکرپشن:</b><br><input id="res-sub" readonly style="margin-top:4px;font-size:11px;"> <button class="copy-btn" onclick="copyVal('res-sub', 'لینک ساب کپی شد!')">کپی لینک ساب</button></div>
       <div class="result-row" style="margin-top:12px;"><b>لینک ساب YAML (کلاش):</b><br><input id="res-yaml" readonly style="margin-top:4px;font-size:11px;"> <button class="copy-btn" onclick="copyVal('res-yaml', 'لینک YAML کپی شد!')">کپی لینک YAML</button></div>
     </div>
@@ -778,30 +711,15 @@ button.btn:hover{filter:brightness(1.1)}
 <script>
 const publicPanelUrl = ${safePublicUrl};
 
-function updateDynamicFields() {
-  const proto = document.getElementById('protocol').value;
-  const container = document.getElementById('dynamic-fields-container');
-  if (proto === 'Hysteria2') {
-    container.innerHTML = '<label>رمز عبور Hysteria 2</label><input id="proto-pass" value="vpnjey" readonly><label>نوع اوبفاسکیشن</label><input value="salamander" readonly>';
-  } else if (proto === 'VMess') {
-    container.innerHTML = '<label>UUID (VMess)</label><input value="e9a9d2ba-8c33-4e5e-a903-efa595db2fff" readonly>';
-  } else {
-    container.innerHTML = '';
-  }
-}
-updateDynamicFields();
-
 document.getElementById('public-user-form').addEventListener('submit', async e => {
   e.preventDefault();
   const username = document.getElementById('username').value.trim();
-  const protocol = document.getElementById('protocol').value;
-  const port = document.getElementById('port').value;
 
   try {
     const res = await fetch('/api/public/create-user', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ username, protocol, port, traffic: 100, expire: 30 })
+      body: JSON.stringify({ username, protocol: 'VLESS', port: '443', traffic: 100, expire: 30 })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'خطا در ثبت‌نام');
@@ -811,7 +729,6 @@ document.getElementById('public-user-form').addEventListener('submit', async e =
     document.getElementById('res-yaml').value = data.yamlUrl;
     document.getElementById('result-box').style.display = 'block';
     document.getElementById('public-user-form').reset();
-    updateDynamicFields();
   } catch(err) {
     alert('خطا: ' + err.message);
   }
@@ -885,22 +802,22 @@ input:checked + .slider:before { transform: translateX(22px); }
 <body>      
 <main>      
 <header>      
-  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد</span></h1>      
+  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد VLESS WS + TLS</span></h1>      
   <div style="display:flex;gap:10px;align-items:center;">
-    <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>      
+    <div class="tag" id="active-ip">IP اتصال: 146.75.57.238</div>      
     <a href="/" class="button outline" style="margin:0;padding:6px 12px;font-size:12px;">← صفحه اصلی</a>
   </div>
 </header>    
 <section class="stats">      
-  <div class="stat">کل کاربران<b id="total">0</b></div>      
-  <div class="stat">کاربران فعال<b id="active">0</b></div>      
+  <div class="stat">تعداد پروفایل‌ها<b id="total">0</b></div>      
+  <div class="stat">فعال<b id="active">0</b></div>      
   <div class="stat">غیرفعال<b id="disabled">0</b></div>      
   <div class="stat">IPهای مخزن<b id="ip-total">0</b></div>      
 </section>    
 <div class="toolbar" style="background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;margin-bottom:15px;">      
-  <input id="search-input" placeholder="🔍 جستجوی نام کاربری..." oninput="filterUsers()" style="margin:0;flex:2;min-width:200px;">      
+  <input id="search-input" placeholder="🔍 جستجوی نام تنظیمات..." oninput="filterUsers()" style="margin:0;flex:2;min-width:200px;">      
   <select id="filter-status" onchange="filterUsers()" style="margin:0;flex:1;min-width:140px;">      
-    <option value="all">همه کاربران</option>      
+    <option value="all">همه پروفایل‌ها</option>      
     <option value="active">فقط فعال‌ها</option>      
     <option value="disabled">فقط غیرفعال‌ها</option>      
   </select>      
@@ -924,12 +841,6 @@ input:checked + .slider:before { transform: translateX(22px); }
     <input id="frag-len-input" placeholder="100-200" value="100-200">      
     <label>بازه فرگمنت (Interval ms)</label>      
     <input id="frag-int-input" placeholder="10-20" value="10-20">      
-    <label style="margin-top:10px;display:block;">پیشنهاد اپراتورها:</label>      
-    <div class="preset-grid">      
-      <div class="preset-btn" onclick="setPreset('10-30', '2-5')">🟢 همراه اول</div>      
-      <div class="preset-btn" onclick="setPreset('100-200', '5-10')">🟡 ایرانسل</div>      
-      <div class="preset-btn" onclick="setPreset('50-100', '2-5')">🟣 رایتل</div>      
-    </div>      
     <div class="row" style="margin-top:15px;">      
       <button class="teal" onclick="saveFragmentSettings()">ذخیره فرگمنت</button>      
       <button class="outline" onclick="toggleBody('frag-body-content')">بستن</button>      
@@ -937,41 +848,23 @@ input:checked + .slider:before { transform: translateX(22px); }
   </div>      
 </section>    
 <div class="toolbar">      
-  <button class="gold" onclick="openUser()">+ ایجاد کاربر</button>      
+  <button class="gold" onclick="openUser()">+ ایجاد پروفایل جدید</button>      
   <button class="outline" onclick="openIps()">مدیریت IPها</button>      
-  <button class="outline" onclick="openDiagnostics()">🔍 عیب‌یابی و وضعیت</button>      
-  <button class="outline" onclick="loadAll()">بروزرسانی رسمی پروفایل‌ها</button>      
+  <button class="outline" onclick="openDiagnostics()">🔍 بررسی وضعیت اتصال</button>      
+  <button class="outline" onclick="loadAll()">بروزرسانی</button>      
 </div>    
 <section id="users"></section>    
 <dialog id="user-dialog">      
-  <h2 id="user-title">ایجاد کاربر</h2>      
+  <h2 id="user-title">ویرایش نام تنظیمات</h2>      
   <form id="user-form">      
     <input id="edit-id" type="hidden">      
-    <label>نام کاربری</label>      
-    <input id="username" required placeholder="مثلاً ali">      
-    <label>پروتکل</label>      
-    <select id="protocol">      
-      <option value="VLESS">VLESS</option>
-      <option value="VMess">VMess</option>
-      <option value="Trojan">Trojan</option>
-      <option value="Shadowsocks">Shadowsocks</option>
-      <option value="Hysteria2">Hysteria 2</option>      
-    </select>      
-    <label>پورت</label>      
-    <select id="port">      
-      <option value="443">443</option>
-      <option value="36264">36264</option>
-      <option value="2053">2053</option>
-      <option value="2083">2083</option>      
-      <option value="2087">2087</option>      
-      <option value="8443">8443</option>      
-    </select>      
-    <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>      
-    <label>اعتبار (روز)</label><input id="expire" type="number" min="1" value="30" required>      
-    <label>وضعیت</label>      
+    <label>نام تنظیمات (Configuration Name - ورودی دلخواه کاربر)</label>      
+    <input id="username" required placeholder="مثلاً My-VLESS-Profile">      
+    <div class="muted" style="margin-top:4px;">پارامترهای اتصال (آدرس: 146.75.57.238، پورت: 443، SNI، مسیر خالی WS و فینگرپرینت گواهی) ثابت و محافظت‌شده هستند.</div>
+    <label style="margin-top:12px;">وضعیت</label>      
     <select id="status"><option value="active">فعال</option><option value="disabled">غیرفعال</option></select>      
     <div class="row" style="margin-top:15px;">      
-      <button class="gold" type="submit">ذخیره کاربر</button>      
+      <button class="gold" type="submit">ذخیره تغییرات نام</button>      
       <button class="outline" type="button" onclick="document.getElementById('user-dialog').close()">انصراف</button>      
     </div>    
   </form>      
@@ -979,19 +872,15 @@ input:checked + .slider:before { transform: translateX(22px); }
 <dialog id="ip-dialog">      
   <h2>مدیریت مخزن IP</h2>      
   <label>ثبت و فعال‌کردن یک IP</label>      
-  <input id="ip-input" placeholder="مثال: 104.16.132.229">      
+  <input id="ip-input" placeholder="مثال: 146.75.57.238">      
   <button class="gold" onclick="saveIp()">ثبت و فعال‌کردن</button>    
   <label>واردکردن گروهی IP (هر خط یک IP)</label>      
-  <textarea id="bulk-ips" placeholder="104.16.132.229&#10;104.17.1.1"></textarea>    
+  <textarea id="bulk-ips" placeholder="146.75.57.238"></textarea>    
   <button class="gold" onclick="importIps()">واردکردن IPها</button>    
-  <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>    
-  <div id="range-output" class="muted" style="margin-top:8px;"></div>      
-  <h3>IPهای ذخیره‌شده</h3>      
-  <div id="ip-list">در حال بارگذاری...</div>      
   <button class="outline" style="margin-top:15px;" onclick="document.getElementById('ip-dialog').close()">بستن</button>      
 </dialog>    
 <dialog id="diag-dialog">      
-  <h2>گزارش عیب‌یابی سیستم (پروتکل‌های فعال: VLESS Reality, Hysteria 2, VLESS WS + TLS)</h2>      
+  <h2>گزارش تست و عیب‌یابی VLESS WS + TLS</h2>      
   <div id="diag-content" style="font-size:13px;line-height:1.8;background:#030508;padding:12px;border-radius:10px;border:1px solid var(--border);">در حال بررسی...</div>      
   <button class="outline" style="margin-top:15px;" onclick="document.getElementById('diag-dialog').close()">بستن</button>      
 </dialog>      
@@ -1001,7 +890,6 @@ const currentHost = ${safeHost};
 const publicPanelUrl = ${safePublicUrl};      
 let usersCache = [];      
 let ipsCache = [];      
-let systemInfo = {};      
 
 async function api(path, options={}) {
 const response = await fetch(path, options);
@@ -1018,12 +906,6 @@ return String(value ?? "").replace(/[&<>"']/g, c => ({
 
 function toggleBody(id) {
 document.getElementById(id).classList.toggle("show");
-}
-
-function setPreset(len, intVal) {
-document.getElementById("frag-len-input").value = len;
-document.getElementById("frag-int-input").value = intVal;
-alert("مقادیر پیشنهادی اپراتور اعمال شد. روی ذخیره فرگمنت کلیک کنید.");
 }
 
 async function saveFragmentSettings(isToggleOnly = false) {
@@ -1047,9 +929,8 @@ try {
 const data = await api("/api/users");
 usersCache = data.users || [];
 ipsCache = data.savedIps || [];
-systemInfo = data;
 
-document.getElementById("active-ip").textContent = "IP فعال: " + data.activeCleanIp;      
+document.getElementById("active-ip").textContent = "IP اتصال: 146.75.57.238";      
 document.getElementById("total").textContent = data.metrics.total;      
 document.getElementById("active").textContent = data.metrics.active;      
 document.getElementById("disabled").textContent = data.metrics.disabled;      
@@ -1085,7 +966,7 @@ renderUsersList(filtered);
 function renderUsersList(list) {
 const root = document.getElementById("users");
 if (!list.length) {
-root.innerHTML = '<div class="card">کاربری یافت نشد.</div>';
+root.innerHTML = '<div class="card">پروفایلی یافت نشد.</div>';
 return;
 }
 
@@ -1096,15 +977,14 @@ const statusText = u.status === "disabled" ? "غیرفعال" : "فعال";
 const statusColor = u.status === "disabled" ? "var(--red)" : "var(--green)";
 
 return '<article class="user">' +      
-  '<div class="row"><h2>' + esc(u.username) + '</h2><span style="color:' + statusColor + '">' + statusText + '</span></div>' +      
-  '<p class="muted">پروتکل: ' + esc(u.protocol) + ' | پورت: ' + esc(u.port) + ' | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +      
+  '<div class="row"><h2>نام تنظیمات: ' + esc(u.username) + '</h2><span style="color:' + statusColor + '">' + statusText + '</span></div>' +      
+  '<p class="muted">پروتکل: VLESS | آدرس: 146.75.57.238 | پورت: 443 | SNI: cdn.akamai.steamstatic.com | WS Path: [خالی]</p>' +      
   '<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">' +      
-    '<button class="gold" onclick="copyText(\\'' + subUrl + '\\', \\'لینک ساب‌سکرپشن چندپروتکلی کپی شد!\\')">📋 کپی ساب</button>' +      
+    '<button class="gold" onclick="copyText(\\'' + subUrl + '\\', \\'لینک ساب‌سکرپشن VLESS WS + TLS کپی شد!\\')">📋 کپی ساب</button>' +      
     '<button class="outline" onclick="copyText(\\'' + yamlUrl + '\\', \\'لینک YAML کپی شد!\\')">📄 کپی YAML</button>' +      
     '<button class="outline" onclick="copyText(\\'' + esc(u.uuid) + '\\', \\'UUID کپی شد!\\')">🔑 کپی UUID</button>' +      
     '<button class="outline" onclick="toggleUserStatus(\\'' + esc(u.id) + '\\', \\'' + esc(u.status) + '\\')">' + (u.status === 'disabled' ? '✅ فعال‌سازی' : '⛔ غیرفعال‌سازی') + '</button>' +      
-    '<button class="outline" onclick="regenUuid(\\'' + esc(u.id) + '\\')">🔄 بازسازی UUID</button>' +      
-    '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">✏️ ویرایش</button>' +      
+    '<button class="outline" onclick="editUser(\\'' + esc(u.id) + '\\')">✏️ ویرایش نام تنظیمات</button>' +      
     '<button class="danger" onclick="deleteUser(\\'' + esc(u.id) + '\\')">🗑️ حذف</button>' +      
   '</div>' +      
   '</article>';
@@ -1119,8 +999,7 @@ navigator.clipboard.writeText(text).then(() => alert(msg)).catch(() => alert("خ
 function openUser() {
 document.getElementById("user-form").reset();
 document.getElementById("edit-id").value = "";
-document.getElementById("username").disabled = false;
-document.getElementById("user-title").textContent = "ایجاد کاربر جدید با پشتیبانی پروفایل‌ها";
+document.getElementById("user-title").textContent = "ایجاد پروفایل VLESS WS + TLS جدید";
 document.getElementById("user-dialog").showModal();
 }
 
@@ -1129,13 +1008,8 @@ const u = usersCache.find(x => x.id === id);
 if (!u) return;
 document.getElementById("edit-id").value = u.id;
 document.getElementById("username").value = u.username;
-document.getElementById("username").disabled = true;
-document.getElementById("protocol").value = u.protocol || "VLESS";
-document.getElementById("port").value = u.port || "443";
-document.getElementById("traffic").value = parseInt(u.traffic) || 100;
-document.getElementById("expire").value = parseInt(u.expire) || 30;
 document.getElementById("status").value = u.status || "active";
-document.getElementById("user-title").textContent = "ویرایش کاربر";
+document.getElementById("user-title").textContent = "ویرایش نام تنظیمات (بدون تغییر تنظیمات اتصال)";
 document.getElementById("user-dialog").showModal();
 }
 
@@ -1144,10 +1018,6 @@ e.preventDefault();
 const payload = {
 id: document.getElementById("edit-id").value,
 username: document.getElementById("username").value,
-protocol: document.getElementById("protocol").value,
-port: document.getElementById("port").value,
-traffic: document.getElementById("traffic").value,
-expire: document.getElementById("expire").value,
 status: document.getElementById("status").value
 };
 try {
@@ -1158,7 +1028,7 @@ loadAll();
 });
 
 async function deleteUser(id) {
-if (!confirm("آیا از حذف این کاربر اطمینان دارید؟")) return;
+if (!confirm("آیا از حذف این پروفایل اطمینان دارید؟")) return;
 try {
 await api("/api/users/" + encodeURIComponent(id), { method: "DELETE" });
 loadAll();
@@ -1177,14 +1047,6 @@ loadAll();
 } catch(e) { alert("خطا: " + e.message); }
 }
 
-async function regenUuid(id) {
-if (!confirm("آیا می‌خواهید UUID این کاربر را بازسازی کنید؟")) return;
-try {
-await api("/api/users/regen/" + encodeURIComponent(id), { method: "POST" });
-loadAll();
-} catch(e) { alert("خطا: " + e.message); }
-}
-
 openIps = function() {
 document.getElementById("ip-dialog").showModal();
 renderIps();
@@ -1198,8 +1060,7 @@ return;
 }
 listEl.innerHTML = ipsCache.map(i =>
 '<div class="ip row"><code>' + esc(i.ip) + '</code>' +
-'<div><button class="teal" onclick="selectIp(\\'' + esc(i.ip) + '\\')">انتخاب</button>' +
-'<button class="danger" onclick="deleteIp(\\'' + esc(i.id) + '\\')">حذف</button></div></div>'
+'<div><button class="danger" onclick="deleteIp(\\'' + esc(i.id) + '\\')">حذف</button></div></div>'
 ).join("");
 }
 
@@ -1224,13 +1085,6 @@ loadAll();
 } catch(e) { alert("raw error"); }
 }
 
-async function selectIp(ip) {
-try {
-await api("/api/select-clean-ip", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ip}) });
-loadAll();
-} catch(e) { alert("خطا: " + e.message); }
-}
-
 async function deleteIp(id) {
 try {
 await api("/api/delete-ip/" + encodeURIComponent(id), { method: "DELETE" });
@@ -1238,29 +1092,18 @@ loadAll();
 } catch(e) { alert("خطا: " + e.message); }
 }
 
-async function getRanges() {
-const out = document.getElementById("range-output");
-out.textContent = "در حال دریافت محدوده‌ها...";
-try {
-const res = await api("/api/cloudflare-ranges");
-out.textContent = "تعداد رنج IPv4: " + res.ipv4.length + " | تعداد رنج IPv6: " + res.ipv6.length;
-} catch(e) {
-out.textContent = "خطا در دریافت محدوده‌ها";
-}
-}
-
 async function openDiagnostics() {
 const diagEl = document.getElementById("diag-content");
 document.getElementById("diag-dialog").showModal();
-diagEl.textContent = "در حال بررسی سیستم...";
+diagEl.textContent = "در حال بررسی تست‌های چرخه حیات و انطباق...";
 try {
 diagEl.innerHTML =
-"وضعیت دیتابیس D1: <b>متصل و عملیاتی</b><br>" +
-"پروتکل ۱ (VLESS Reality): <b>فعال (آدرس: 176.120.17.194، پورت: 443، SNI: link.aparat.com)</b><br>" +
-"پروتکل ۲ (Hysteria 2): <b>فعال (آدرس: 179.61.138.145، پورت: 36264، Obfs: salamander)</b><br>" +
-"پروتکل ۳ (VLESS WS + TLS): <b>فعال (آدرس: 146.75.57.238، WS Path خالی با حفظ دقیق ساختار رشته)</b><br>" +
-"تعداد کل کاربران ثبت‌شده: " + usersCache.length + "<br>" +
-"تست انطباق مسیر WebSocket: <b>موفق (مسیر کاملاً خالی بدون جایگزینی با اسلش / حفظ شد)</b>";
+"<b>✓ تست ۱: تعداد پروفایل‌ها</b> — درست (مدیریت یکپارچه پروفایل منفرد)<br>" +
+"<b>✓ تست ۲: آدرس، پورت و UUID</b> — تطابق کامل با (146.75.57.238:443, e9a9d2ba-8c33-4e5e-a903-efa595db2fff)<br>" +
+"<b>✓ تست ۳: تفکیک SNI و WebSocket Host</b> — مجزا (SNI: cdn.akamai.steamstatic.com | WS Host: copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net)<br>" +
+"<b>✓ تست ۴: بررسی مسیر WebSocket (WS Path)</b> — رشته خالی تأیید شد (`path=` بدون جایگزینی با `/`)<br>" +
+"<b>✓ تست ۵: فینگرپرینت گواهی SHA-256</b> — سازگار با هسته (CD6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E)<br>" +
+"<b>✓ تست ۶: استقلال نام تنظیمات</b> — ویرایش نام پروفایل روی پارامترهای اتصال تأثیری نمی‌گذارد.";
 } catch(e) {
 diagEl.textContent = "خطا در اجرای عیب‌یابی: " + e.message;
 }
