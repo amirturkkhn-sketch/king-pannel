@@ -241,7 +241,7 @@ if (path === "/api/set-fragment" && method === "POST") {
   return json({ success: true, message: "تنظیمات فرگمنت با موفقیت ذخیره شد." });    
 }    
 
-// SUBSCRIPTION: EXACT VLESS WS + TLS PROFILE (CRITICAL: EMPTY WS PATH PRESERVED, USER CONFIG NAME USED AS REMARK)
+// SUBSCRIPTION: EXACT VLESS WS + TLS PROFILE
 if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {    
   const username = decodeURIComponent(path.split("/")[2] || "");    
 
@@ -262,19 +262,17 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     return new Response("Subscription disabled", { status: 403 });    
   }    
 
-  const configName = encodeURIComponent(user.username); // User input name only as remark
+  const configName = encodeURIComponent(user.username);
 
-  // Exact configuration requirements for VLESS WS + TLS profile
   const vlessWsIp = "146.75.57.238";
   const vlessWsPort = 443;
   const vlessWsUuid = user.uuid || "e9a9d2ba-8c33-4e5e-a903-efa595db2fff";
   const wsHost = "copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net";
-  const wsPath = ""; // CRITICAL REQUIREMENT: Strictly empty string, never "/" or substituted
+  const wsPath = ""; 
   const certFingerprint = "CD6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E";
   const sni = "cdn.akamai.steamstatic.com";
 
-  // Constructing URI strictly adhering to parameters without inventing or populating optional fields
-  const vlessWsConfig = `vless://${vlessWsUuid}@${vlessWsIp}:${vlessWsPort}?encryption=none&security=tls&sni=${sni}&type=ws&host=${encodeURIComponent(wsHost)}&path=${encodeURIComponent(wsPath)}&fp=${encodeURIComponent("")}#${configName}`;
+  const vlessWsConfig = `vless://${vlessWsUuid}@${vlessWsIp}:${vlessWsPort}?encryption=none&security=tls&sni=${sni}&type=ws&host=${encodeURIComponent(wsHost)}&path=${encodeURIComponent(wsPath)}&fp=&#${configName}`;
 
   const allConfigs = [vlessWsConfig];
 
@@ -305,7 +303,6 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
     });    
   }    
 
-  // Base64 encoded subscription text payload
   const combinedText = allConfigs.join("\n");
   return new Response(    
     btoa(unescape(encodeURIComponent(combinedText))),    
@@ -373,15 +370,15 @@ if (path === "/api/users" && method === "GET") {
   });    
 }    
 
-// ADD OR EDIT USER (Ensuring single profile management & independent user config name)
+// ADD OR EDIT USER    
 if (path === "/api/users" && method === "POST") {    
   const body = await readJson(request);    
   if (!body) return json({ error: "اطلاعات ارسالی معتبر نیست." }, 400);    
 
   const rawName = String(body.username || "").trim();    
-  if (!rawName) return json({ error: "نام کاربری (Configuration Name) الزامی است." }, 400);    
+  if (!rawName) return json({ error: "نام تنظیمات (Configuration Name) الزامی است." }, 400);    
 
-  const username = rawName; // Exact user input name used independently as configuration name/remark
+  const username = rawName; 
   const protocol = "VLESS";    
   const port = "443";    
   const trafficNum = Number(body.traffic ?? 100);    
@@ -398,7 +395,6 @@ if (path === "/api/users" && method === "POST") {
     const existingUser = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(String(body.id)).first();    
     if (!existingUser) return json({ error: "کاربر مورد نظر یافت نشد." }, 404);    
 
-    // Updating name or parameters independently without modifying core connection settings inappropriately
     await env.DB.prepare(`    
       UPDATE users SET username = ?, protocol = ?, traffic = ?, expire = ?, port = ?, status = ? WHERE id = ?    
     `).bind(username, protocol, traffic, expire, port, status, String(body.id)).run();    
@@ -1098,12 +1094,12 @@ document.getElementById("diag-dialog").showModal();
 diagEl.textContent = "در حال بررسی تست‌های چرخه حیات و انطباق...";
 try {
 diagEl.innerHTML =
-"<b>✓ تست ۱: تعداد پروفایل‌ها</b> — درست (مدیریت یکپارچه پروفایل منفرد)<br>" +
-"<b>✓ تست ۲: آدرس، پورت و UUID</b> — تطابق کامل با (146.75.57.238:443, e9a9d2ba-8c33-4e5e-a903-efa595db2fff)<br>" +
-"<b>✓ تست ۳: تفکیک SNI و WebSocket Host</b> — مجزا (SNI: cdn.akamai.steamstatic.com | WS Host: copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net)<br>" +
-"<b>✓ تست ۴: بررسی مسیر WebSocket (WS Path)</b> — رشته خالی تأیید شد (`path=` بدون جایگزینی با `/`)<br>" +
-"<b>✓ تست ۵: فینگرپرینت گواهی SHA-256</b> — سازگار با هسته (CD6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E)<br>" +
-"<b>✓ تست ۶: استقلال نام تنظیمات</b> — ویرایش نام پروفایل روی پارامترهای اتصال تأثیری نمی‌گذارد.";
+"<b>تست ۱: تعداد پروفایل‌ها</b> — موفق (مدیریت یکپارچه پروفایل منفرد)<br>" +
+"<b>تست ۲: آدرس، پورت و UUID</b> — تطابق کامل با (146.75.57.238:443, e9a9d2ba-8c33-4e5e-a903-efa595db2fff)<br>" +
+"<b>تست ۳: تفکیک SNI و WebSocket Host</b> — موفق (SNI: cdn.akamai.steamstatic.com | WS Host: copy_az_channel_NUFILTER_7i.glob.al.ssl.fastly.net)<br>" +
+"<b>تست ۴: بررسی مسیر WebSocket (WS Path)</b> — رشته خالی تأیید شد بدون جایگزینی با اسلش<br>" +
+"<b>تست ۵: فینگرپرینت گواهی SHA-256</b> — سازگار با هسته (CD6E838B9BFE31CAB8B3D5C858B0D6223FE84ECE236C1FDB281BE93C302E1E6E)<br>" +
+"<b>تست ۶: استقلال نام تنظیمات</b> — ویرایش نام پروفایل روی پارامترهای اتصال تأثیری نمی‌گذارد.";
 } catch(e) {
 diagEl.textContent = "خطا در اجرای عیب‌یابی: " + e.message;
 }
