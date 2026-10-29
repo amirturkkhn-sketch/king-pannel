@@ -79,11 +79,11 @@ if (path === "/api/public/create-user" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);
 
   const id = "usr_" + crypto.randomUUID();
-  const uuid = "9f3d0b52-9b0f-4af7-ac42-d3ca2fd2a685";
+  const uuid = "d1b33bcd-88e8-428f-87da-cc8bfb2d426c";
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();
 
   const pUrl = env.PANEL_PUBLIC_URL || `https://${host}`;
@@ -219,7 +219,7 @@ const [activeRow, fragEnabledRow, fragLenRow, fragIntRow] = await Promise.all([
 
 const publicUrl = env.PANEL_PUBLIC_URL || `https://${host}`;    
 const connectionHost = env.CONNECTION_HOST || host;    
-const activeCleanIp = activeRow?.value || "pol.qikbro.com";    
+const activeCleanIp = activeRow?.value || "89.125.11.26";    
     
 const fragEnabled = fragEnabledRow?.value === "true";    
 const fragLen = fragLenRow?.value || "100-200";    
@@ -241,7 +241,7 @@ if (path === "/api/set-fragment" && method === "POST") {
   return json({ success: true, message: "تنظیمات فرگمنت با موفقیت ذخیره شد." });    
 }    
 
-// SUBSCRIPTION: EXACT VLESS gRPC PROFILE
+// SUBSCRIPTION: EXACT VLESS TCP + REALITY PROFILE
 if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET") {    
   const username = decodeURIComponent(path.split("/")[2] || "");    
 
@@ -264,14 +264,15 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
 
   const configName = encodeURIComponent(user.username);
 
-  const vlessIp = activeCleanIp || "pol.qikbro.com";
+  const vlessIp = activeCleanIp || "89.125.11.26";
   const vlessPort = 443;
-  const vlessUuid = user.uuid || "9f3d0b52-9b0f-4af7-ac42-d3ca2fd2a685";
-  const sni = "pol.qikbro.com";
-  const grpcServiceName = "assets";
-  const grpcMode = "gun";
+  const vlessUuid = user.uuid || "d1b33bcd-88e8-428f-87da-cc8bfb2d426c";
+  const sni = "room8.filesnap.tech";
+  const pbk = "BTRF6cX_1ul5lAN31QmqrPNl9yMNo8JrsUJOhi9K71U";
+  const sid = "3cb2d38fbac380fa";
+  const flow = "xtls-rprx-vision";
 
-  const vlessConfig = `vless://${vlessUuid}@${vlessIp}:${vlessPort}?encryption=none&security=tls&sni=${sni}&type=grpc&mode=${grpcMode}&serviceName=${encodeURIComponent(grpcServiceName)}#${configName}`;
+  const vlessConfig = `vless://${vlessUuid}@${vlessIp}:${vlessPort}?encryption=none&security=reality&sni=${sni}&fp=chrome&pbk=${pbk}&sid=${sid}&type=tcp&flow=${flow}#${configName}`;
 
   const allConfigs = [vlessConfig];
 
@@ -284,11 +285,12 @@ if ((path.startsWith("/sub/") || path.startsWith("/yaml/")) && method === "GET")
       `    port: ${vlessPort}`,    
       `    uuid: "${vlessUuid}"`,    
       `    encryption: none`,    
-      `    network: grpc`,    
+      `    network: tcp`,    
       `    tls: true`,    
+      `    flow: "${flow}"`,    
       `    servername: "${sni}"`,    
-      `    grpc-opts:\n      grpc-service-name: "${grpcServiceName}"`,    
-      `    skip-cert-verify: false`    
+      `    reality-opts:\n      public-key: "${pbk}"\n      short-id: "${sid}"`,    
+      `    client-fingerprint: "chrome"`    
     ].join("\n");    
 
     return new Response(yaml, {    
@@ -404,11 +406,11 @@ if (path === "/api/users" && method === "POST") {
   if (existing) return json({ error: "این نام کاربری قبلاً ثبت شده است." }, 409);    
 
   const id = "usr_" + crypto.randomUUID();    
-  const uuid = "9f3d0b52-9b0f-4af7-ac42-d3ca2fd2a685";    
+  const uuid = "d1b33bcd-88e8-428f-87da-cc8bfb2d426c";    
 
   await env.DB.prepare(`    
     INSERT INTO users (id, username, uuid, protocol, traffic, expire, port, tls, adblock, adult_block, status)    
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'tls', 'on', 'on', ?)    
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'reality', 'on', 'on', ?)    
   `).bind(id, username, uuid, protocol, traffic, expire, port, status).run();    
 
   return json({ success: true, message: "کاربر جدید ثبت شد." });    
@@ -419,7 +421,7 @@ if (path.startsWith("/api/users/regen/") && method === "POST") {
   const id = decodeURIComponent(path.slice("/api/users/regen/".length));    
   if (!id) return json({ error: "شناسه نامعتبر است." }, 400);    
 
-  const newUuid = "9f3d0b52-9b0f-4af7-ac42-d3ca2fd2a685";    
+  const newUuid = "d1b33bcd-88e8-428f-87da-cc8bfb2d426c";    
   await env.DB.prepare("UPDATE users SET uuid = ? WHERE id = ?").bind(newUuid, id).run();    
   return json({ success: true, message: "UUID کاربر با موفقیت بازسازی شد.", uuid: newUuid });    
 }    
@@ -686,7 +688,7 @@ button.btn:hover{filter:brightness(1.1)}
       <input id="username" required placeholder="مثلاً ali">
       
       <label>پروتکل</label>
-      <input value="VLESS (gRPC + TLS)" readonly style="background:#111827;color:#14b8a6;">
+      <input value="VLESS (TCP + Reality + Vision)" readonly style="background:#111827;color:#14b8a6;">
       
       <label>پورت اتصال</label>
       <input value="443" readonly style="background:#111827;color:#14b8a6;">
@@ -795,7 +797,7 @@ input:checked + .slider:before { transform: translateX(22px); }
 <body>      
 <main>      
 <header>      
-  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد VLESS gRPC + TLS</span></h1>      
+  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد VLESS TCP + Reality + Vision</span></h1>      
   <div style="display:flex;gap:10px;align-items:center;">
     <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>      
     <a href="/" class="button outline" style="margin:0;padding:6px 12px;font-size:12px;">← صفحه اصلی</a>
@@ -860,7 +862,7 @@ input:checked + .slider:before { transform: translateX(22px); }
     <label>نام کاربری</label>      
     <input id="username" required placeholder="مثلاً ali">      
     <label>پروتکل</label>      
-    <input value="VLESS (gRPC + TLS)" readonly style="background:#111827;color:#14b8a6;">      
+    <input value="VLESS (TCP + Reality + Vision)" readonly style="background:#111827;color:#14b8a6;">      
     <label>پورت</label>      
     <input value="443" readonly style="background:#111827;color:#14b8a6;">      
     <label>حجم (GB)</label><input id="traffic" type="number" min="1" value="100" required>      
@@ -876,10 +878,10 @@ input:checked + .slider:before { transform: translateX(22px); }
 <dialog id="ip-dialog">      
   <h2>مدیریت مخزن IP</h2>      
   <label>ثبت و فعال‌کردن یک IP</label>      
-  <input id="ip-input" placeholder="مثال: pol.qikbro.com">      
+  <input id="ip-input" placeholder="مثال: 89.125.11.26">      
   <button class="gold" onclick="saveIp()">ثبت و فعال‌کردن</button>    
   <label>واردکردن گروهی IP (هر خط یک IP)</label>      
-  <textarea id="bulk-ips" placeholder="pol.qikbro.com"></textarea>    
+  <textarea id="bulk-ips" placeholder="89.125.11.26"></textarea>    
   <button class="gold" onclick="importIps()">واردکردن IPها</button>    
   <button class="outline" onclick="getRanges()">دریافت محدوده‌های رسمی Cloudflare</button>    
   <div id="range-output" class="muted" style="margin-top:8px;"></div>      
@@ -994,7 +996,7 @@ const statusColor = u.status === "disabled" ? "var(--red)" : "var(--green)";
 
 return '<article class="user">' +      
   '<div class="row"><h2>' + esc(u.username) + '</h2><span style="color:' + statusColor + '">' + statusText + '</span></div>' +      
-  '<p class="muted">پروتکل: VLESS (gRPC + TLS) | پورت: 443 | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +      
+  '<p class="muted">پروتکل: VLESS (TCP + Reality + Vision) | پورت: 443 | حجم: ' + esc(u.traffic) + ' | اعتبار: ' + esc(u.expire) + '</p>' +      
   '<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">' +      
     '<button class="gold" onclick="copyText(\\'' + subUrl + '\\', \\'لینک ساب‌سکرپشن کپی شد!\\')">📋 کپی ساب</button>' +      
     '<button class="outline" onclick="copyText(\\'' + yamlUrl + '\\', \\'لینک YAML کپی شد!\\')">📄 کپی YAML</button>' +      
@@ -1150,12 +1152,13 @@ document.getElementById("diag-dialog").showModal();
 diagEl.textContent = "در حال بررسی سیستم...";
 try {
 diagEl.innerHTML =
-"<b>وضعیت پروتکل:</b> VLESS gRPC + TLS<br>" +
-"<b>آدرس سرور:</b> pol.qikbro.com (پورت: 443)<br>" +
-"<b>SNI:</b> pol.qikbro.com<br>" +
-"<b>gRPC Mode:</b> gun<br>" +
-"<b>gRPC ServiceName:</b> assets<br>" +
-"<b>TLS:</b> enabled";
+"<b>وضعیت پروتکل:</b> VLESS TCP + Reality + Vision<br>" +
+"<b>آدرس سرور:</b> 89.125.11.26 (پورت: 443)<br>" +
+"<b>SNI:</b> room8.filesnap.tech<br>" +
+"<b>Flow:</b> xtls-rprx-vision<br>" +
+"<b>Fingerprint:</b> chrome<br>" +
+"<b>Public Key:</b> BTRF6cX_1ul5lAN31QmqrPNl9yMNo8JrsUJOhi9K71U<br>" +
+"<b>ShortID:</b> 3cb2d38fbac380fa";
 } catch(e) {
 diagEl.textContent = "خطا در اجرای عیب‌یابی: " + e.message;
 }
