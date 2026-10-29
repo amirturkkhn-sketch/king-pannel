@@ -117,7 +117,7 @@ if (path === "/owner" || path.startsWith("/api/")) {
       <head>    
       <meta charset="utf-8">    
       <meta name="viewport" content="width=device-width,initial-scale=1">    
-      <title>ورود مدیریت - KING PANEL</title>    
+      <title>ورود مدیریت - 👑KING_PANEL</title>    
       <style>    
         :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af}    
         body{margin:0;padding:0;background:radial-gradient(circle at center, #111827 0%, var(--bg) 100%);color:var(--text);font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}    
@@ -186,7 +186,7 @@ if (path === "/owner" || path.startsWith("/api/")) {
       status: 401,    
       headers: {    
         "Content-Type": "text/html; charset=UTF-8",    
-        "WWW-Authenticate": 'Basic realm="KING PANEL OWNER"'    
+        "WWW-Authenticate": 'Basic realm="👑KING_PANEL OWNER"'    
       }    
     });    
   }    
@@ -593,7 +593,7 @@ return `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ورود به KING PANEL</title>
+<title>ورود به 👑KING_PANEL</title>
 <style>
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af;--teal:#14b8a6}
 *{box-sizing:border-box}
@@ -621,7 +621,7 @@ p.subtitle{color:var(--muted);font-size:clamp(14px, 2vw, 16px);margin-bottom:45p
 </head>
 <body>
 <div class="container">
-  <span class="badge">👑 KING PANEL PLATFORM 👑</span>
+  <span class="badge">👑KING_PANEL PLATFORM 👑</span>
   <h1>به پنل قدرتمند کینگ خوش آمدید</h1>
   <p class="subtitle">لطفاً برای ورود به بخش مدیریت یا پنل کاربری، یکی از گزینه‌های زیر را انتخاب کنید.</p>
   
@@ -652,7 +652,7 @@ return `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ثبت‌نام کاربر - KING PANEL</title>
+<title>ثبت‌نام کاربر - 👑KING_PANEL</title>
 <style>
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--teal:#14b8a6;--purple:#8b5cf6;--text:#f3f4f6;--muted:#9ca3af}
 *{box-sizing:border-box}
@@ -748,7 +748,7 @@ return `<!doctype html>
 <head>      
 <meta charset="utf-8">      
 <meta name="viewport" content="width=device-width,initial-scale=1">      
-<title>مدیریت - KING PANEL</title>      
+<title>مدیریت - 👑KING_PANEL</title>      
 <style>      
 :root{--bg:#030508;--card:#0a0e17;--border:#1e2634;--gold:#f59e0b;--text:#f3f4f6;--muted:#9ca3af;--green:#10b981;--red:#ef4444;--purple:#8b5cf6;--teal:#14b8a6}      
 *{box-sizing:border-box}      
@@ -797,7 +797,7 @@ input:checked + .slider:before { transform: translateX(22px); }
 <body>      
 <main>      
 <header>      
-  <h1>👑 KING PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد VLESS TCP + Reality + Vision</span></h1>      
+  <h1>👑KING_PANEL <span style="font-size:13px;color:var(--purple);font-weight:normal;">| پنل مدیریت ارشد VLESS TCP + Reality + Vision</span></h1>      
   <div style="display:flex;gap:10px;align-items:center;">
     <div class="tag" id="active-ip">در حال دریافت IP فعال...</div>      
     <a href="/" class="button outline" style="margin:0;padding:6px 12px;font-size:12px;">← صفحه اصلی</a>
